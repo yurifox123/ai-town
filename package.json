@@ -1,0 +1,34 @@
+{
+  "name": "ai-town",
+  "version": "0.1.0",
+  "description": "Generative Agents - AI小镇复刻",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "demo": "tsx src/demo.ts",
+    "db:setup": "tsx scripts/setup-db.ts"
+  },
+  "dependencies": {
+    "openai": "^4.28.0",
+    "@anthropic-ai/sdk": "^0.18.0",
+    "chromadb": "^1.8.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.16.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.2.0",
+    "eslint": "^8.56.0"
+  },
+  "keywords": ["ai", "agents", "generative-agents", "simulation"],
+  "license": "MIT"
+}
