@@ -444,6 +444,13 @@ export class WorldSimulator extends EventEmitter {
     return this.tickCount;
   }
 
+  /**
+   * 获取运行状态
+   */
+  getIsRunning(): boolean {
+    return this.isRunning;
+  }
+
   // 私有方法
 
   private advanceGameTime(): void {

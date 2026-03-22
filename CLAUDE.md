@@ -9,11 +9,17 @@ AI小镇 (AI Town) is a multi-agent simulation system based on Stanford's "Gener
 ## Common Commands
 
 ```bash
-# Development (hot reload)
+# Start Web frontend (default)
+npm start
+
+# Start CLI mode
+npm run start:cli
+
+# Development (hot reload) - CLI
 npm run dev
 
-# Run once
-npm start
+# Web development (hot reload)
+npm run dev:web
 
 # Build TypeScript
 npm run build
@@ -112,6 +118,44 @@ Available at runtime:
 - `pause` / `resume` / `menu` - Control simulation
 - `restart` / `newgame` - Reset options
 
+## Web Frontend
+
+The project includes a web-based visualization frontend.
+
+### Frontend Features
+
+- **Real-time Visualization**: 2D grid world with Agent positions and buildings
+- **Live Updates**: WebSocket-powered real-time Agent movement and status updates
+- **Agent Details**: Click on any Agent to view their memories, reflections, and background
+- **Event Log**: Real-time display of world events and Agent actions
+- **Simulation Control**: Start/stop simulation from the web interface
+- **Interactive Map**: Hover over elements to see tooltips, click Agents for details
+
+### Running the Frontend
+
+```bash
+# Start the web server (includes auto-starting the simulation)
+npm run start:web
+
+# Or with hot reload
+npm run dev:web
+```
+
+Then open your browser to `http://localhost:3060`
+
+### Frontend Architecture
+
+```
+src/
+├── server/
+│   └── frontend-server.ts    # WebSocket + HTTP server
+├── frontend.ts               # Web mode entry point
+└── public/                   # Static frontend files
+    ├── index.html            # Main HTML
+    ├── styles.css            # Dark theme UI
+    └── app.js                # Frontend application logic
+```
+
 ## Environment Variables
 
 Critical variables (from `.env.example`):
@@ -120,3 +164,7 @@ Critical variables (from `.env.example`):
 - `TICK_INTERVAL_MS` - Simulation tick interval (default: 5000ms)
 - `WORLD_WIDTH` / `WORLD_HEIGHT` - Map dimensions (default: 50x50)
 - `TIME_SCALE` - Game time speed (default: 60, meaning 1 real second = 1 game minute)
+
+## TypeScript Configuration
+
+Uses `moduleResolution: "bundler"` with path mapping `@/*` → `src/*`. The `dist/` directory contains compiled output.

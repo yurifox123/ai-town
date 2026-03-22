@@ -10,6 +10,8 @@
 - 💬 **自然对话**：Agent之间可以进行有意义的对话
 - 🎮 **存档系统**：支持保存/加载游戏进度
 - 🔄 **实时模拟**：游戏时间加速运行，观察Agent日常
+- 🌐 **Web可视化**：实时2D地图展示Agent位置和行动
+- 📊 **实时监控**：通过浏览器查看Agent记忆、反思和状态
 
 ## 快速开始
 
@@ -23,17 +25,33 @@ npm install
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入你的 OpenAI API Key
+# 编辑 .env，填入你的 API Key
 ```
 
 ### 3. 运行程序
+
+```bash
+# 启动 Web 可视化界面（默认）
+npm start
+
+# 然后打开浏览器访问 http://localhost:3060
+```
+
+#### CLI 命令行模式
 
 ```bash
 # 开发模式（热重载）
 npm run dev
 
 # 生产模式
-npm start
+npm run start:cli
+```
+
+#### Web 前端开发模式
+
+```bash
+# 带热重载的 Web 开发
+npm run dev:web
 ```
 
 ## 项目结构
@@ -49,13 +67,20 @@ ai-town/
 │   │   └── simulator.ts    # 世界模拟器、时间管理
 │   ├── llm/                # LLM客户端
 │   │   └── client.ts       # 支持OpenAI/Claude/Ollama
+│   ├── server/             # 前端服务器
+│   │   └── frontend-server.ts # WebSocket + HTTP服务器
 │   ├── config/             # 配置管理
 │   │   └── index.ts        # 应用配置、环境变量
 │   ├── data/               # 数据模板
 │   │   └── agent-templates.ts # 预定义Agent模板
 │   ├── types/              # 类型定义
 │   │   └── index.ts        # TypeScript接口
-│   └── index.ts            # 程序入口
+│   ├── index.ts            # CLI程序入口
+│   └── frontend.ts         # Web前端入口
+├── public/                 # 前端静态文件
+│   ├── index.html          # 主页面
+│   ├── styles.css          # 样式表
+│   └── app.js              # 前端逻辑
 ├── .env.example            # 环境变量模板
 ├── package.json
 └── tsconfig.json

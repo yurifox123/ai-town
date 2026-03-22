@@ -44,27 +44,31 @@ echo.
 echo ========================================
 echo           🎮 主菜单
 echo ========================================
-echo  1. 开发模式 (热重载) - npm run dev
-echo  2. 运行一次 - npm start
-echo  3. 运行测试 - npm test
-echo  4. 检查代码 - npm run lint
-echo  5. 构建项目 - npm run build
-echo  6. 数据库设置 - npm run db:setup
-echo  7. 打开配置文件 (.env)
-echo  8. 退出
+echo  1. 启动 Web 界面 (默认)
+echo  2. CLI 开发模式 (热重载)
+echo  3. CLI 模式
+echo  4. Web 开发模式 (热重载)
+echo  5. 运行测试
+echo  6. 检查代码
+echo  7. 构建项目
+echo  8. 数据库设置
+echo  9. 打开配置文件 (.env)
+echo  10. 退出
 echo ========================================
 echo.
 
-set /p choice="请选择操作 (1-8): "
+set /p choice="请选择操作 (1-10): "
 
-if "%choice%"=="1" goto dev
-if "%choice%"=="2" goto start
-if "%choice%"=="3" goto test
-if "%choice%"=="4" goto lint
-if "%choice%"=="5" goto build
-if "%choice%"=="6" goto dbsetup
-if "%choice%"=="7" goto config
-if "%choice%"=="8" goto exit
+if "%choice%"=="1" goto web
+if "%choice%"=="2" goto dev
+if "%choice%"=="3" goto cli
+if "%choice%"=="4" goto devweb
+if "%choice%"=="5" goto test
+if "%choice%"=="6" goto lint
+if "%choice%"=="7" goto build
+if "%choice%"=="8" goto dbsetup
+if "%choice%"=="9" goto config
+if "%choice%"=="10" goto exit
 if "%choice%"=="q" goto exit
 if "%choice%"=="Q" goto exit
 
@@ -73,18 +77,38 @@ goto menu
 
 :dev
 echo.
-echo 🚀 启动开发模式 (热重载)...
+echo 🚀 启动 CLI 开发模式 (热重载)...
 echo    按 Ctrl+C 停止运行
 echo.
 call npm run dev
 pause
 goto menu
 
-:start
+:cli
 echo.
-echo 🚀 运行程序...
+echo 🖥️  启动 CLI 模式...
+call npm run start:cli
+echo.
+pause
+goto menu
+
+:web
+echo.
+echo 🌐 启动 Web 界面...
+echo    访问地址: http://localhost:3060
+echo    按 Ctrl+C 停止运行
+echo.
 call npm start
+pause
+goto menu
+
+:devweb
 echo.
+echo 🌐 启动 Web 开发模式 (热重载)...
+echo    访问地址: http://localhost:3060
+echo    按 Ctrl+C 停止运行
+echo.
+call npm run dev:web
 pause
 goto menu
 

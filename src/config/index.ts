@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { LLMConfig } from '../types';
 
 // 加载环境变量
 config({ path: resolve(process.cwd(), '.env') });
@@ -46,10 +47,24 @@ export const appConfig = {
 
   // 服务器配置
   server: {
-    port: parseInt(process.env.PORT || '3000'),
-    wsPort: parseInt(process.env.WS_PORT || '3001'),
+    port: parseInt(process.env.PORT || '3060'),
+    wsPort: parseInt(process.env.WS_PORT || '3060'),
   },
 };
+
+/**
+ * 获取LLM配置
+ */
+export function getLLMConfig(): LLMConfig {
+  return {
+    provider: appConfig.llm.provider,
+    model: appConfig.llm.model,
+    apiKey: appConfig.llm.apiKey,
+    temperature: appConfig.llm.temperature,
+    maxTokens: appConfig.llm.maxTokens,
+    custom: appConfig.llm.custom,
+  };
+}
 
 /**
  * 确保数据目录存在
