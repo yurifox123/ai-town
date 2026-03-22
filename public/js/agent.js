@@ -14,9 +14,14 @@ class Agent {
 
     // 状态
     this.position = { x: 0, y: 0 };
-    this.moveTarget = null; // 移动目标位置（逐格移动）
-    this.movesSinceLastDecision = 0; // 上次决策后走了多少格
+    // 移动相关
+    this.moveTarget = null;
+    this.movesSinceLastDecision = 0;
     this.decisionInterval = 50; // 每50格做一次新决策
+    this.moveInterval = null; // 移动定时器
+    this.moveSpeed = 200; // 每 0.2 秒 (200ms) 走一格
+    this.moveListeners = []; // 移动监听（用于通知渲染更新）
+
     this.currentPlan = null;
     this.currentAction = null;
     this.observations = [];
@@ -219,11 +224,8 @@ ${memoryContext}
     switch (action.type) {
       case this.ActionType.MOVE:
         if (action.targetPosition) {
-          // 存储移动目标，而不是立即移动
-          this.moveTarget = { ...action.targetPosition };
-          console.log(`[${this.name}] 设定移动目标: (${this.position.x},${this.position.y}) -> (${this.moveTarget.x},${this.moveTarget.y})`);
-          // 执行一步移动
-          this.moveOneStep();
+          // 启动独立移动循环，每 0.2 秒走一格，不依赖 tick
+          this.startMoving({ ...action.targetPosition });
         }
         break;
 
@@ -239,6 +241,63 @@ ${memoryContext}
     }
 
     return action;
+  }
+
+  /**
+   * 开始移动（启动独立定时器，每 0.2 秒走一格）
+   */
+  startMoving(targetPosition) {
+    if (this.moveInterval) {
+      clearInterval(this.moveInterval);
+    }
+
+    this.moveTarget = targetPosition;
+    this.status = 'moving';
+
+    console.log(`[${this.name}] 开始移动，目标: (${targetPosition.x},${targetPosition.y})，速度: 每 ${this.moveSpeed}ms 一格`);
+
+    // 启动移动循环，每 0.2 秒走一格
+    this.moveInterval = setInterval(() => {
+      const stillMoving = this.moveOneStep();
+
+      // 通知监听者位置更新（用于渲染）
+      this.notifyMoveListeners();
+
+      if (!stillMoving) {
+        // 到达目标，停止移动定时器
+        this.stopMoving();
+      }
+    }, this.moveSpeed);
+
+    return true;
+  }
+
+  /**
+   * 停止移动
+   */
+  stopMoving() {
+    if (this.moveInterval) {
+      clearInterval(this.moveInterval);
+      this.moveInterval = null;
+    }
+    this.moveTarget = null;
+    this.status = 'idle';
+  }
+
+  /**
+   * 添加移动监听（用于 UI 渲染）
+   */
+  onMove(callback) {
+    this.moveListeners.push(callback);
+  }
+
+  /**
+   * 通知移动监听
+   */
+  notifyMoveListeners() {
+    for (const listener of this.moveListeners) {
+      listener(this.position);
+    }
   }
 
   /**

@@ -189,10 +189,10 @@ class WorldSimulator extends EventTarget {
    * 更新单个Agent
    */
   async updateAgent(agent) {
-    // 1. 检查是否正在移动中且不需要新决策
+    // 1. 检查是否需要做新决策
+    // 条件：到达目标、走了50格、或没有移动目标
     if (agent.isMoving() && !agent.shouldMakeNewDecision()) {
-      // 继续移动（逐格）
-      agent.moveOneStep();
+      // 还在移动中，不做新决策（移动由 Agent 自己的定时器处理）
       return;
     }
 
@@ -204,7 +204,7 @@ class WorldSimulator extends EventTarget {
     const worldState = this.getWorldState();
     const action = await agent.decide(worldState);
 
-    // 4. 执行行动
+    // 4. 执行行动（如果是移动，会启动独立定时器）
     await agent.executeAction(action, this);
 
     // 5. 重置决策计数器
