@@ -14,6 +14,7 @@ class Agent {
 
     // 状态
     this.position = { x: 0, y: 0 };
+    this.moveTarget = null; // 移动目标位置（逐格移动）
     this.currentPlan = null;
     this.currentAction = null;
     this.observations = [];
@@ -216,9 +217,11 @@ ${memoryContext}
     switch (action.type) {
       case this.ActionType.MOVE:
         if (action.targetPosition) {
-          const oldPos = { ...this.position };
-          this.position = action.targetPosition;
-          console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})`);
+          // 存储移动目标，而不是立即移动
+          this.moveTarget = { ...action.targetPosition };
+          console.log(`[${this.name}] 设定移动目标: (${this.position.x},${this.position.y}) -> (${this.moveTarget.x},${this.moveTarget.y})`);
+          // 执行一步移动
+          this.moveOneStep();
         }
         break;
 
@@ -234,6 +237,79 @@ ${memoryContext}
     }
 
     return action;
+  }
+
+  /**
+   * 逐格移动一步
+   * 如果还有移动目标，向目标移动一格
+   * @returns {boolean} 是否还有剩余移动
+   */
+  moveOneStep() {
+    if (!this.moveTarget) return false;
+
+    const dx = this.moveTarget.x - this.position.x;
+    const dy = this.moveTarget.y - this.position.y;
+
+    // 检查是否已到达目标
+    if (dx === 0 && dy === 0) {
+      console.log(`[${this.name}] 已到达目标位置`);
+      this.moveTarget = null;
+      this.status = 'idle';
+      return false;
+    }
+
+    // 决定移动方向（先水平后垂直，或随机选择）
+    let moveX = 0;
+    let moveY = 0;
+
+    if (dx !== 0 && dy !== 0) {
+      // 两个方向都有距离，随机选择先移动哪个方向
+      if (Math.random() < 0.5) {
+        moveX = dx > 0 ? 1 : -1;
+      } else {
+        moveY = dy > 0 ? 1 : -1;
+      }
+    } else if (dx !== 0) {
+      // 只水平移动
+      moveX = dx > 0 ? 1 : -1;
+    } else if (dy !== 0) {
+      // 只垂直移动
+      moveY = dy > 0 ? 1 : -1;
+    }
+
+    // 执行移动
+    const oldPos = { ...this.position };
+    this.position.x += moveX;
+    this.position.y += moveY;
+
+    const distance = Math.abs(dx) + Math.abs(dy);
+    console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余距离: ${distance - 1}`);
+
+    // 记录移动记忆
+    this.memory.addMemory(
+      `我移动到了位置(${this.position.x}, ${this.position.y})`,
+      this.MemoryType.ACTION,
+      5
+    );
+
+    // 检查是否到达目标
+    if (this.position.x === this.moveTarget.x && this.position.y === this.moveTarget.y) {
+      console.log(`[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})`);
+      this.moveTarget = null;
+      this.status = 'idle';
+      return false;
+    }
+
+    // 还有剩余移动
+    this.status = 'moving';
+    return true;
+  }
+
+  /**
+   * 检查是否正在移动中
+   */
+  isMoving() {
+    return this.moveTarget !== null;
   }
 
   /**
