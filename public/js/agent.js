@@ -15,6 +15,8 @@ class Agent {
     // 状态
     this.position = { x: 0, y: 0 };
     this.moveTarget = null; // 移动目标位置（逐格移动）
+    this.movesSinceLastDecision = 0; // 上次决策后走了多少格
+    this.decisionInterval = 50; // 每50格做一次新决策
     this.currentPlan = null;
     this.currentAction = null;
     this.observations = [];
@@ -281,9 +283,10 @@ ${memoryContext}
     const oldPos = { ...this.position };
     this.position.x += moveX;
     this.position.y += moveY;
+    this.movesSinceLastDecision++; // 增加移动计数
 
     const distance = Math.abs(dx) + Math.abs(dy);
-    console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余距离: ${distance - 1}`);
+    console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余距离: ${distance - 1}，已走${this.movesSinceLastDecision}格`);
 
     // 记录移动记忆
     this.memory.addMemory(
@@ -294,7 +297,7 @@ ${memoryContext}
 
     // 检查是否到达目标
     if (this.position.x === this.moveTarget.x && this.position.y === this.moveTarget.y) {
-      console.log(`[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})`);
+      console.log(`[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})，已走${this.movesSinceLastDecision}格`);
       this.moveTarget = null;
       this.status = 'idle';
       return false;
@@ -303,6 +306,30 @@ ${memoryContext}
     // 还有剩余移动
     this.status = 'moving';
     return true;
+  }
+
+  /**
+   * 检查是否应该做新决策
+   * 条件：走了50格，或到达目标，或没有移动目标
+   */
+  shouldMakeNewDecision() {
+    // 没有目标，需要做决策
+    if (!this.moveTarget) return true;
+
+    // 已经走了50格，需要做新决策
+    if (this.movesSinceLastDecision >= this.decisionInterval) {
+      console.log(`[${this.name}] 已走${this.movesSinceLastDecision}格，触发新决策`);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 重置决策计数器（在做出新决策后调用）
+   */
+  resetDecisionCounter() {
+    this.movesSinceLastDecision = 0;
   }
 
   /**

@@ -189,28 +189,28 @@ class WorldSimulator extends EventTarget {
    * 更新单个Agent
    */
   async updateAgent(agent) {
-    // 1. 感知环境
+    // 1. 检查是否正在移动中且不需要新决策
+    if (agent.isMoving() && !agent.shouldMakeNewDecision()) {
+      // 继续移动（逐格）
+      agent.moveOneStep();
+      return;
+    }
+
+    // 2. 感知环境
     const observations = this.getObservationsForAgent(agent);
     await agent.perceive(observations);
 
-    // 2. 检查是否正在移动中
-    if (agent.isMoving()) {
-      // 继续移动（逐格）
-      const stillMoving = agent.moveOneStep();
-      if (stillMoving) {
-        // 还在移动中，不执行新决策
-        this.currentAction = { description: `移动到(${agent.moveTarget.x},${agent.moveTarget.y})`, type: 'MOVE' };
-      }
-    } else {
-      // 3. 决策新行动
-      const worldState = this.getWorldState();
-      const action = await agent.decide(worldState);
+    // 3. 决策新行动
+    const worldState = this.getWorldState();
+    const action = await agent.decide(worldState);
 
-      // 4. 执行行动
-      await agent.executeAction(action, this);
-    }
+    // 4. 执行行动
+    await agent.executeAction(action, this);
 
-    // 5. 检查Agent交互
+    // 5. 重置决策计数器
+    agent.resetDecisionCounter();
+
+    // 6. 检查Agent交互
     await this.checkAgentInteractions(agent);
   }
 
