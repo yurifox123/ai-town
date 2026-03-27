@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/lenovo/AppData/Local/Temp/claude/c--Users-lenovo-Desktop/claude-ai-town/79fc7138-784b-4fac-8c8a-2fe5611fe5c6/tasks/**)"
+    ]
+  }
+}

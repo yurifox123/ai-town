@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-echo 正在查找并关闭 AI小镇服务器...
+echo 正在查找并关闭 AI生态小镇服务器...
 
 :: 查找占用 3061 端口的进程
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3061') do (
@@ -9,7 +9,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3061') do (
     if errorlevel 1 (
         echo 需要使用管理员权限运行
     ) else (
-        echo ✅ AI小镇服务器已关闭
+        echo ✅ AI生态小镇服务器已关闭
     )
 )
 

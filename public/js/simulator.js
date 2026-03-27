@@ -279,8 +279,8 @@ class WorldSimulator extends EventTarget {
    * 检查Agent交互
    */
   async checkAgentInteractions(agent) {
-    // 简单的随机交互概率
-    if (agent.nearbyAgents.size > 0 && Math.random() < 0.1) {
+    // 简单的随机交互概率 (20%概率，且1分钟冷却)
+    if (agent.nearbyAgents.size > 0 && Math.random() < 0.2) {
       const nearbyId = Array.from(agent.nearbyAgents)[Math.floor(Math.random() * agent.nearbyAgents.size)];
       const other = this.agents.get(nearbyId);
       if (other) {
@@ -298,15 +298,77 @@ class WorldSimulator extends EventTarget {
 
     if (!agent1 || !agent2) return;
 
+    // 检查是否在冷却期内
+    const now = Date.now();
+    const lastTalk1 = agent1.lastConversation.get(agentId2) || 0;
+    const lastTalk2 = agent2.lastConversation.get(agentId1) || 0;
+    if (now - lastTalk1 < 60000 || now - lastTalk2 < 60000) return;
+
+    // 更新最后对话时间
+    agent1.lastConversation.set(agentId2, now);
+    agent2.lastConversation.set(agentId1, now);
+
+    // 生成对话内容
+    const dialogue = await this.generateDialogue(agent1, agent2);
+
     // 触发对话事件
     this.dispatchEvent(new CustomEvent('event', {
       detail: {
         type: 'conversation',
-        description: `${agent1.name}和${agent2.name}开始交谈`,
+        description: `${agent1.name}和${agent2.name}在交谈`,
         timestamp: new Date(),
-        agentIds: [agentId1, agentId2]
+        agentIds: [agentId1, agentId2],
+        dialogue: dialogue
       }
     }));
+
+    // 发送对话气泡事件
+    this.dispatchEvent(new CustomEvent('dialogue', {
+      detail: {
+        agentId: agentId1,
+        message: dialogue.speaker1,
+        timestamp: now
+      }
+    }));
+
+    setTimeout(() => {
+      this.dispatchEvent(new CustomEvent('dialogue', {
+        detail: {
+          agentId: agentId2,
+          message: dialogue.speaker2,
+          timestamp: Date.now()
+        }
+      }));
+    }, 2000);
+  }
+
+  /**
+   * 生成对话内容
+   */
+  async generateDialogue(agent1, agent2) {
+    // 简化版：随机选择对话主题
+    const topics = [
+      '今天的天气真好啊！',
+      '你最近在看什么书？',
+      '咖啡馆的新品不错，去试试吗？',
+      '公园里花开得真漂亮。',
+      '最近工作/学习怎么样？',
+      '听说镇上要来新人了。'
+    ];
+
+    const responses = [
+      '是啊，我也这么觉得！',
+      '真的吗？我也想看看。',
+      '好啊，一起去吧！',
+      '听起来不错呢。',
+      '还好啦，就是有点忙。',
+      '期待见到新朋友！'
+    ];
+
+    return {
+      speaker1: topics[Math.floor(Math.random() * topics.length)],
+      speaker2: responses[Math.floor(Math.random() * responses.length)]
+    };
   }
 
   /**

@@ -8,7 +8,7 @@ import { agentTemplates } from './data/agent-templates';
  * Kimi K2.5 (Anthropic Messages API 格式) 配置示例
  */
 async function main() {
-  console.log('🎮 AI小镇 - Kimi K2.5 示例\n');
+  console.log('🎮 AI生态小镇 - Kimi K2.5 示例\n');
 
   // 1. 初始化
   ensureDataDir();
@@ -70,7 +70,7 @@ async function main() {
 
   // 优雅退出
   process.on('SIGINT', () => {
-    console.log('\n\n👋 正在关闭AI小镇...');
+    console.log('\n\n👋 正在关闭AI生态小镇...');
     world.stop();
     process.exit(0);
   });

@@ -140,7 +140,7 @@ ${memoryContext}
     try {
       console.log(`[${this.name}] 正在请求LLM决策...`);
       const response = await this.llm.chat([
-        { role: 'system', content: `你是${this.name}，一个生活在AI小镇的居民。请根据你的性格和记忆做出自然的行为决定。只输出JSON，不要其他解释。` },
+        { role: 'system', content: `你是${this.name}，一个生活在AI生态小镇的居民。请根据你的性格和记忆做出自然的行为决定。只输出JSON，不要其他解释。` },
         { role: 'user', content: prompt }
       ]);
       console.log(`[${this.name}] LLM响应:`, response);

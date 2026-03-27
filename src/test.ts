@@ -5,11 +5,11 @@ import { MockLLMClient } from './llm/mock';
 import { agentTemplates } from './data/agent-templates';
 
 /**
- * AI小镇测试程序
+ * AI生态小镇测试程序
  * 使用Mock LLM，无需API Key
  */
 async function main() {
-  console.log('🎮 AI小镇测试启动中...\n');
+  console.log('🎮 AI生态小镇测试启动中...\n');
   console.log('（使用Mock模式，无需API Key）\n');
 
   // 1. 初始化
@@ -98,7 +98,7 @@ async function main() {
 
   // 优雅退出
   process.on('SIGINT', () => {
-    console.log('\n\n👋 正在关闭AI小镇...');
+    console.log('\n\n👋 正在关闭AI生态小镇...');
     world.stop();
     process.exit(0);
   });

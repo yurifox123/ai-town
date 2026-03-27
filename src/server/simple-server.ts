@@ -183,7 +183,14 @@ async function handleRequest(req, res) {
       '.html': 'text/html',
       '.js': 'application/javascript',
       '.css': 'text/css',
-      '.json': 'application/json'
+      '.json': 'application/json',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.webp': 'image/webp',
+      '.ico': 'image/x-icon'
     }[ext] || 'application/octet-stream';
 
     res.writeHead(200, { 'Content-Type': contentType });
@@ -226,7 +233,7 @@ async function main() {
   const server = http.createServer(handleRequest);
 
   server.listen(PORT, () => {
-    console.log('\n🌐 AI小镇服务器已启动');
+    console.log('\n🌐 AI生态小镇服务器已启动');
     console.log(`   访问地址: http://localhost:${PORT}`);
     console.log(`   LLM模型: ${llmConfig.model}`);
     console.log('');

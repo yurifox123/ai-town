@@ -1,4 +1,4 @@
-# AI小镇 🤖
+# AI生态小镇 🤖
 
 基于斯坦福大学 Generative Agents 论文的多智能体模拟系统。
 

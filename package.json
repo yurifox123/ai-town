@@ -1,7 +1,7 @@
 {
   "name": "ai-town",
   "version": "0.1.0",
-  "description": "Generative Agents - AI小镇复刻",
+  "description": "Generative Agents - AI生态小镇复刻",
   "main": "src/index.ts",
   "scripts": {
     "dev": "tsx watch src/server/simple-server.ts",

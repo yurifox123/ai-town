@@ -3,84 +3,171 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI小镇 - 多智能体模拟系统</title>
+  <title>AI 生态小镇 - 多智能体模拟系统</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="app">
     <!-- 顶部标题栏 -->
     <header class="header">
-      <h1>🤖 AI小镇</h1>
-      <div class="status-bar">
+      <div class="header-left">
+        <h1>🏘️ AI 生态小镇</h1>
+      </div>
+      <div class="header-center">
+        <span id="game-time" class="game-time">--:--</span>
+        <span class="time-separator">|</span>
+        <span id="tick-count" class="tick-count">Tick: 0</span>
+      </div>
+      <div class="header-right">
+        <button id="btn-mode-toggle" class="btn btn-small btn-mode">🎮 模拟模式</button>
         <span id="simulation-status" class="status stopped">已停止</span>
-        <span id="game-time">--:--</span>
-        <span id="tick-count">Tick: 0</span>
-        <button id="btn-stop-server" class="btn btn-small btn-danger">🛑 停止服务器</button>
+        <div class="control-buttons">
+          <button id="btn-start" class="btn btn-primary btn-icon">▶️</button>
+          <button id="btn-stop" class="btn btn-secondary btn-icon" disabled>⏸️</button>
+          <button id="btn-reset" class="btn btn-warning btn-icon">🔄</button>
+        </div>
+        <button id="btn-stop-server" class="btn btn-small btn-danger">🛑</button>
       </div>
     </header>
 
     <!-- 主内容区 -->
     <main class="main-content">
-      <!-- 左侧：世界地图 -->
+      <!-- 世界地图 -->
       <section class="map-section">
-        <div class="section-header">
-          <h2>🗺️ 世界地图</h2>
-          <div class="map-controls">
-            <button id="btn-start" class="btn btn-primary">▶️ 开始</button>
-            <button id="btn-stop" class="btn btn-secondary" disabled>⏸️ 停止</button>
-            <button id="btn-reset" class="btn btn-warning">🔄 重置</button>
+        <!-- 编辑工具栏 -->
+        <div id="editor-toolbar" class="editor-toolbar hidden">
+          <div class="toolbar-group">
+            <span class="toolbar-label">🛠️ 工具</span>
+            <button class="toolbar-btn active" data-tool="select" title="选择/移动">↖️</button>
+            <button class="toolbar-btn" data-tool="ground" title="绘制地面">🟫</button>
+            <button class="toolbar-btn" data-tool="path" title="绘制路径">🛤️</button>
+            <button class="toolbar-btn" data-tool="building" title="添加建筑">🏠</button>
+            <button class="toolbar-btn" data-tool="eraser" title="橡皮擦">🧹</button>
           </div>
+          <div class="toolbar-group">
+            <span class="toolbar-label">🎨 地面</span>
+            <button class="toolbar-btn terrain-btn active" data-terrain="grass" title="草地">🌱</button>
+            <button class="toolbar-btn terrain-btn" data-terrain="path" title="土路">🛤️</button>
+            <button class="toolbar-btn terrain-btn" data-terrain="water" title="水域">💧</button>
+          </div>
+          <div class="toolbar-group">
+            <span class="toolbar-label">🏗️ 建筑</span>
+            <button id="btn-editor-add-building" class="btn btn-small">➕ 新建建筑</button>
+          </div>
+          <div class="toolbar-group">
+            <span class="toolbar-label">💾 操作</span>
+            <button id="btn-save-map" class="btn btn-small">💾 保存</button>
+            <button id="btn-load-map" class="btn btn-small">📂 加载</button>
+            <button id="btn-clear-map" class="btn btn-small btn-danger">🗑️ 清空</button>
+          </div>
+          <input type="file" id="map-file-input" accept=".json" hidden>
         </div>
+
         <div class="map-container">
           <canvas id="world-map"></canvas>
           <div id="map-tooltip" class="tooltip hidden"></div>
         </div>
-        <div class="map-legend">
-          <div class="legend-item"><span class="legend-color agent"></span> Agent</div>
-          <div class="legend-item"><span class="legend-color building"></span> 建筑</div>
-          <div class="legend-item"><span class="legend-color area"></span> 区域</div>
-        </div>
       </section>
 
-      <!-- 右侧：信息面板 -->
-      <aside class="info-panel">
-        <!-- Agent列表 -->
-        <div class="panel-section">
-          <h3>👥 Agent列表</h3>
+      <!-- 右侧信息面板（模拟模式） -->
+      <aside class="sidebar" id="simulation-sidebar">
+        <!-- Agent 列表 -->
+        <div class="panel agent-panel">
+          <div class="panel-header">
+            <h3>👥 居民</h3>
+            <span class="panel-count" id="agent-count">0</span>
+          </div>
           <div id="agent-list" class="agent-list">
             <div class="empty-state">等待初始化...</div>
           </div>
         </div>
 
         <!-- 事件日志 -->
-        <div class="panel-section">
-          <h3>📜 事件日志</h3>
+        <div class="panel event-panel">
+          <div class="panel-header">
+            <h3>📜 事件</h3>
+            <button id="btn-clear-log" class="btn-clear">🗑️</button>
+          </div>
           <div id="event-log" class="event-log">
             <div class="empty-state">暂无事件</div>
           </div>
         </div>
 
-        <!-- 控制面板 -->
-        <div class="panel-section">
-          <h3>🎮 快捷操作</h3>
+        <!-- 快捷操作 -->
+        <div class="panel actions-panel">
+          <div class="panel-header">
+            <h3>🎮 操作</h3>
+          </div>
           <div class="quick-actions">
-            <button id="btn-add-agent" class="btn btn-small">➕ 添加Agent</button>
-            <button id="btn-trigger-event" class="btn btn-small">⚡ 触发事件</button>
-            <button id="btn-clear-log" class="btn btn-small">🗑️ 清空日志</button>
+            <button id="btn-add-agent" class="btn btn-small">➕ 添加</button>
+            <button id="btn-trigger-event" class="btn btn-small">⚡ 事件</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 右侧编辑面板（编辑模式） -->
+      <aside class="sidebar hidden" id="editor-sidebar">
+        <!-- 地图信息 -->
+        <div class="panel">
+          <div class="panel-header">
+            <h3>🗺️ 地图信息</h3>
+          </div>
+          <div class="panel-body">
+            <div class="info-row">
+              <span class="info-label">尺寸:</span>
+              <span id="map-dimensions">50×50</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">建筑数:</span>
+              <span id="building-count">0</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">选中:</span>
+              <span id="selected-cell">无</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 选中建筑详情 -->
+        <div class="panel" id="editor-building-panel">
+          <div class="panel-header">
+            <h3>🏠 建筑属性</h3>
+          </div>
+          <div class="panel-body" id="editor-building-content">
+            <div class="empty-state">点击建筑进行编辑</div>
+          </div>
+        </div>
+
+        <!-- 操作说明 -->
+        <div class="panel">
+          <div class="panel-header">
+            <h3>💡 操作说明</h3>
+          </div>
+          <div class="panel-body">
+            <ul class="help-list">
+              <li>左键：使用选中工具</li>
+              <li>拖拽：移动建筑</li>
+              <li>滚轮：缩放地图</li>
+              <li>右键拖拽：平移视图</li>
+            </ul>
           </div>
         </div>
       </aside>
     </main>
 
-    <!-- Agent详情弹窗 -->
+    <!-- Agent 详情弹窗 -->
     <div id="agent-modal" class="modal hidden">
-      <div class="modal-content">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-large">
         <div class="modal-header">
-          <h2 id="modal-agent-name">Agent详情</h2>
+          <h2 id="modal-agent-name">Agent 详情</h2>
           <button id="btn-close-modal" class="btn-close">×</button>
         </div>
         <div class="modal-body">
-          <div class="agent-info">
+          <div class="agent-info-grid">
             <div class="info-row">
               <span class="info-label">ID:</span>
               <span id="modal-agent-id" class="info-value"></span>
@@ -99,18 +186,20 @@
             </div>
             <div class="info-row">
               <span class="info-label">状态:</span>
-              <span id="modal-agent-status" class="info-value"></span>
+              <span id="modal-agent-status" class="info-value status-badge"></span>
             </div>
             <div class="info-row">
               <span class="info-label">当前动作:</span>
               <span id="modal-agent-action" class="info-value"></span>
             </div>
           </div>
+          
           <div class="agent-tabs">
             <button class="tab-btn active" data-tab="memories">🧠 记忆</button>
             <button class="tab-btn" data-tab="reflections">💭 反思</button>
             <button class="tab-btn" data-tab="background">📖 背景</button>
           </div>
+          
           <div class="tab-content">
             <div id="tab-memories" class="tab-pane active">
               <div id="modal-memories" class="memory-list"></div>
@@ -119,38 +208,42 @@
               <div id="modal-reflections" class="memory-list"></div>
             </div>
             <div id="tab-background" class="tab-pane">
-              <p id="modal-agent-background"></p>
-              <h4>目标:</h4>
-              <ul id="modal-agent-goals"></ul>
+              <div class="background-content">
+                <h4>背景故事</h4>
+                <p id="modal-agent-background"></p>
+                <h4>目标</h4>
+                <ul id="modal-agent-goals" class="goals-list"></ul>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 添加Agent弹窗 -->
+    <!-- 添加 Agent 弹窗 -->
     <div id="add-agent-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
       <div class="modal-content modal-small">
         <div class="modal-header">
-          <h2>➕ 添加新Agent</h2>
+          <h2>➕ 添加新居民</h2>
           <button id="btn-close-add-modal" class="btn-close">×</button>
         </div>
         <div class="modal-body">
           <form id="add-agent-form">
             <div class="form-group">
-              <label for="new-agent-name">名称:</label>
-              <input type="text" id="new-agent-name" required placeholder="输入Agent名称">
+              <label for="new-agent-name">名称</label>
+              <input type="text" id="new-agent-name" required placeholder="输入名称">
             </div>
             <div class="form-group">
-              <label for="new-agent-age">年龄:</label>
+              <label for="new-agent-age">年龄</label>
               <input type="number" id="new-agent-age" min="1" max="120" value="25">
             </div>
             <div class="form-group">
-              <label for="new-agent-traits">性格特点:</label>
-              <textarea id="new-agent-traits" rows="2" placeholder="描述性格特点..."></textarea>
+              <label for="new-agent-traits">性格特点</label>
+              <textarea id="new-agent-traits" rows="2" placeholder="描述性格..."></textarea>
             </div>
             <div class="form-group">
-              <label for="new-agent-background">背景故事:</label>
+              <label for="new-agent-background">背景故事</label>
               <textarea id="new-agent-background" rows="3" placeholder="背景故事..."></textarea>
             </div>
             <div class="form-actions">
@@ -164,15 +257,16 @@
 
     <!-- 触发事件弹窗 -->
     <div id="event-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
       <div class="modal-content modal-small">
         <div class="modal-header">
-          <h2>⚡ 触发世界事件</h2>
+          <h2>⚡ 触发事件</h2>
           <button id="btn-close-event-modal" class="btn-close">×</button>
         </div>
         <div class="modal-body">
           <form id="event-form">
             <div class="form-group">
-              <label for="event-type">事件类型:</label>
+              <label for="event-type">事件类型</label>
               <select id="event-type">
                 <option value="custom">自定义事件</option>
                 <option value="weather">天气变化</option>
@@ -181,12 +275,71 @@
               </select>
             </div>
             <div class="form-group">
-              <label for="event-description">事件描述:</label>
-              <textarea id="event-description" rows="3" required placeholder="描述发生了什么事件..."></textarea>
+              <label for="event-description">事件描述</label>
+              <textarea id="event-description" rows="3" required placeholder="描述发生了什么..."></textarea>
             </div>
             <div class="form-actions">
               <button type="submit" class="btn btn-primary">触发事件</button>
               <button type="button" id="btn-cancel-event" class="btn btn-secondary">取消</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    <!-- 编辑建筑弹窗 -->
+    <div id="edit-building-modal" class="modal hidden">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>🏠 编辑建筑</h2>
+          <button class="btn-close" id="btn-close-edit-building">×</button>
+        </div>
+        <div class="modal-body">
+          <form id="edit-building-form">
+            <input type="hidden" id="edit-building-original-id">
+            <div class="form-group">
+              <label for="edit-building-id">ID (唯一标识)</label>
+              <input type="text" id="edit-building-id" required placeholder="如: shop, library">
+            </div>
+            <div class="form-group">
+              <label for="edit-building-name">显示名称</label>
+              <input type="text" id="edit-building-name" required placeholder="如: 便利店">
+            </div>
+            <div class="form-group">
+              <label>贴图</label>
+              <div class="image-upload-area" id="edit-image-upload-area">
+                <input type="file" id="edit-building-image" accept="image/png,image/jpg,image/jpeg,image/webp" hidden>
+                <img id="edit-image-preview" class="image-preview hidden" alt="预览">
+                <div class="upload-placeholder" id="edit-upload-placeholder">
+                  <span class="upload-icon">🖼️</span>
+                  <span>点击或拖拽上传图片</span>
+                  <span class="upload-hint">支持 PNG, JPG, WEBP</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group half">
+                <label for="edit-building-width">宽度 (格)</label>
+                <input type="number" id="edit-building-width" min="1" max="10" value="3">
+              </div>
+              <div class="form-group half">
+                <label for="edit-building-height">高度 (格)</label>
+                <input type="number" id="edit-building-height" min="1" max="10" value="3">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="edit-building-obstacle" checked>
+                <span>🔒 作为障碍物（人物无法通过）</span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label for="edit-building-description">描述</label>
+              <textarea id="edit-building-description" rows="2" placeholder="建筑描述..."></textarea>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">保存修改</button>
+              <button type="button" class="btn btn-danger" id="btn-delete-building">🗑️ 删除</button>
+              <button type="button" class="btn btn-secondary" id="btn-cancel-edit-building">取消</button>
             </div>
           </form>
         </div>
