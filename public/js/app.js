@@ -65,6 +65,20 @@ const state = {
 // ========== DOM 元素缓存 ==========
 let elements = {};
 
+// 编辑模式状态
+let isDragging = false;
+let isPainting = false;
+let dragBuilding = null;
+let dragOffset = { x: 0, y: 0 };
+let lastPaintedCell = null;
+
+// 撤销/重做历史
+const editHistory = {
+  stack: [],
+  index: -1,
+  maxSize: 50
+};
+
 // 对话气泡管理
 const dialogueBubbles = new Map();
 
@@ -288,10 +302,18 @@ function initCanvas() {
   // 画布交互
   state.canvas.addEventListener('mousemove', handleMouseMove);
   state.canvas.addEventListener('click', handleCanvasClick);
+  state.canvas.addEventListener('mousedown', handleCanvasMouseDown);
+  state.canvas.addEventListener('mouseup', handleCanvasMouseUp);
   state.canvas.addEventListener('mouseleave', () => {
     hideTooltip();
     state.hoveredElement = null;
+    isPainting = false;
+    isDragging = false;
+    dragBuilding = null;
   });
+
+  // 键盘事件（撤销/重做）
+  document.addEventListener('keydown', handleEditorKeyDown);
 }
 
 // ========== 渲染循环 ==========
@@ -466,34 +488,48 @@ function drawBuildingPlaceholder(ctx, x, y, w, h, building) {
 function drawPaths(ctx, cellSize) {
   const pathImage = imageLoader.getImage('/assets/tiles/path.png');
 
-  // 定义路径点（连接各个建筑）
-  const pathPoints = [
-    // 小明家 -> 咖啡馆
-    { x: 5, y: 5 }, { x: 6, y: 6 }, { x: 7, y: 7 }, { x: 8, y: 8 }, { x: 9, y: 9 }, { x: 10, y: 10 },
-    // 咖啡馆 -> 便利店
-    { x: 11, y: 11 }, { x: 12, y: 12 }, { x: 13, y: 13 }, { x: 14, y: 14 }, { x: 15, y: 14 }, { x: 16, y: 14 }, { x: 17, y: 14 }, { x: 18, y: 14 }, { x: 19, y: 14 }, { x: 20, y: 14 }, { x: 21, y: 14 }, { x: 22, y: 14 }, { x: 23, y: 14 }, { x: 24, y: 14 }, { x: 25, y: 15 },
-    // 便利店 -> 公园
-    { x: 26, y: 16 }, { x: 27, y: 17 }, { x: 28, y: 18 }, { x: 29, y: 19 }, { x: 30, y: 20 },
-    // 咖啡馆 -> 图书馆
-    { x: 11, y: 12 }, { x: 11, y: 13 }, { x: 11, y: 14 }, { x: 11, y: 15 }, { x: 11, y: 16 }, { x: 11, y: 17 }, { x: 11, y: 18 }, { x: 11, y: 19 }, { x: 11, y: 20 }, { x: 11, y: 21 }, { x: 11, y: 22 }, { x: 11, y: 23 }, { x: 11, y: 24 }, { x: 11, y: 25 }, { x: 11, y: 26 }, { x: 11, y: 27 }, { x: 11, y: 28 }, { x: 11, y: 29 }, { x: 12, y: 29 }, { x: 13, y: 29 }, { x: 14, y: 29 }, { x: 15, y: 30 },
-    // 公园 -> 小红家
-    { x: 31, y: 21 }, { x: 32, y: 22 }, { x: 33, y: 23 }, { x: 34, y: 24 }, { x: 35, y: 25 }, { x: 36, y: 26 }, { x: 37, y: 27 }, { x: 38, y: 28 }, { x: 39, y: 29 }, { x: 40, y: 30 }, { x: 40, y: 31 }, { x: 40, y: 32 }, { x: 40, y: 33 }, { x: 40, y: 34 }, { x: 40, y: 35 },
-  ];
+  // 笔直的道路网格 - 主街道
+  const roadWidth = 2; // 道路宽度2格
 
-  for (const point of pathPoints) {
-    const x = point.x * cellSize;
-    const y = point.y * cellSize;
-
-    if (pathImage) {
-      ctx.drawImage(pathImage, x, y, cellSize, cellSize);
-    } else {
-      // 回退到绘制土路颜色
-      ctx.fillStyle = '#c9b896';
-      ctx.fillRect(x, y, cellSize, cellSize);
-      ctx.strokeStyle = '#b8a685';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(x, y, cellSize, cellSize);
+  // 水平主干道 (y = 10, 25)
+  for (let x = 0; x < CONFIG.WORLD_WIDTH; x++) {
+    for (let w = 0; w < roadWidth; w++) {
+      // 主干道1
+      drawRoadTile(ctx, x, 10 + w, cellSize, pathImage);
+      // 主干道2
+      drawRoadTile(ctx, x, 25 + w, cellSize, pathImage);
     }
+  }
+
+  // 垂直主干道 (x = 10, 25, 40)
+  for (let y = 0; y < CONFIG.WORLD_HEIGHT; y++) {
+    for (let w = 0; w < roadWidth; w++) {
+      // 主街道1
+      drawRoadTile(ctx, 10 + w, y, cellSize, pathImage);
+      // 主街道2
+      drawRoadTile(ctx, 25 + w, y, cellSize, pathImage);
+      // 主街道3
+      drawRoadTile(ctx, 40 + w, y, cellSize, pathImage);
+    }
+  }
+}
+
+function drawRoadTile(ctx, x, y, cellSize, pathImage) {
+  if (x >= CONFIG.WORLD_WIDTH || y >= CONFIG.WORLD_HEIGHT) return;
+
+  const px = x * cellSize;
+  const py = y * cellSize;
+
+  if (pathImage) {
+    ctx.drawImage(pathImage, px, py, cellSize, cellSize);
+  } else {
+    // 道路底色
+    ctx.fillStyle = '#c9b896';
+    ctx.fillRect(px, py, cellSize, cellSize);
+    // 道路边缘线
+    ctx.strokeStyle = '#b8a685';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(px, py, cellSize, cellSize);
   }
 }
 
@@ -510,13 +546,7 @@ function drawObject(ctx, obj, cellSize) {
   if (sprite) {
     const drawWidth = displaySize[0] * CONFIG.SPRITE_SCALE;
     const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
-    
-    // 绘制阴影
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-    ctx.beginPath();
-    ctx.ellipse(x, y + drawHeight / 2 - 4, drawWidth / 2, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
+
     // 绘制建筑
     ctx.drawImage(sprite, x - drawWidth / 2, y - drawHeight / 2, drawWidth, drawHeight);
   } else {
@@ -706,6 +736,40 @@ function handleMouseMove(e) {
   const mouseY = (e.clientY - rect.top) * scaleY;
   const cellSize = CONFIG.MAP_CELL_SIZE;
 
+  // 编辑模式下的拖拽和绘制
+  if (state.isEditMode) {
+    if (isDragging && dragBuilding) {
+      // 拖拽建筑
+      const gridX = Math.floor(mouseX / cellSize) - dragOffset.x;
+      const gridY = Math.floor(mouseY / cellSize) - dragOffset.y;
+
+      // 边界检查
+      dragBuilding.x = Math.max(0, Math.min(gridX, CONFIG.WORLD_WIDTH - dragBuilding.width));
+      dragBuilding.y = Math.max(0, Math.min(gridY, CONFIG.WORLD_HEIGHT - dragBuilding.height));
+      return;
+    }
+
+    if (isPainting && state.editorTool !== 'select') {
+      // 连续绘制地形
+      const gridX = Math.floor(mouseX / cellSize);
+      const gridY = Math.floor(mouseY / cellSize);
+
+      // 避免重复绘制同一格
+      if (lastPaintedCell?.x !== gridX || lastPaintedCell?.y !== gridY) {
+        lastPaintedCell = { x: gridX, y: gridY };
+
+        if (gridX >= 0 && gridX < CONFIG.WORLD_WIDTH && gridY >= 0 && gridY < CONFIG.WORLD_HEIGHT) {
+          if (state.editorTool === 'ground' || state.editorTool === 'path') {
+            paintTerrain(gridX, gridY, state.editorTerrain);
+          } else if (state.editorTool === 'eraser') {
+            eraseAt(gridX, gridY);
+          }
+        }
+      }
+      return;
+    }
+  }
+
   const worldState = state.world.getWorldState();
   let hovered = null;
 
@@ -716,7 +780,7 @@ function handleMouseMove(e) {
     const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
     const ax = agent.position.x * cellSize;
     const ay = agent.position.y * cellSize;
-    
+
     if (mouseX >= ax - drawWidth / 2 && mouseX <= ax + drawWidth / 2 &&
         mouseY >= ay - drawHeight / 2 && mouseY <= ay + drawHeight / 2) {
       hovered = { type: 'agent', data: agent };
@@ -732,7 +796,7 @@ function handleMouseMove(e) {
       const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
       const ox = obj.position.x * cellSize;
       const oy = obj.position.y * cellSize;
-      
+
       if (mouseX >= ox - drawWidth / 2 * 1.5 && mouseX <= ox + drawWidth / 2 * 1.5 &&
           mouseY >= oy - drawHeight / 2 * 1.5 && mouseY <= oy + drawHeight / 2 * 1.5) {
         hovered = { type: 'object', data: obj };
@@ -777,6 +841,145 @@ function handleCanvasClick(e) {
         mouseY >= ay - drawHeight / 2 && mouseY <= ay + drawHeight / 2) {
       showAgentDetails(agent.agentId);
       return;
+    }
+  }
+}
+
+// ========== 编辑模式鼠标事件 ==========
+function handleCanvasMouseDown(e) {
+  if (!state.isEditMode) return;
+
+  const rect = state.canvas.getBoundingClientRect();
+  const scaleX = state.canvas.width / rect.width;
+  const scaleY = state.canvas.height / rect.height;
+  const mouseX = (e.clientX - rect.left) * scaleX;
+  const mouseY = (e.clientY - rect.top) * scaleY;
+  const cellSize = CONFIG.MAP_CELL_SIZE;
+
+  const gridX = Math.floor(mouseX / cellSize);
+  const gridY = Math.floor(mouseY / cellSize);
+
+  if (state.editorTool === 'select') {
+    // 尝试选中并拖拽建筑
+    const building = state.editorBuildings?.find(b =>
+      gridX >= b.x && gridX < b.x + b.width &&
+      gridY >= b.y && gridY < b.y + b.height
+    );
+
+    if (building) {
+      isDragging = true;
+      dragBuilding = building;
+      dragOffset = { x: gridX - building.x, y: gridY - building.y };
+      state.editorSelectedBuilding = building;
+      renderBuildingListInEditor();
+      renderEditorBuildingProperties();
+    }
+  } else if (state.editorTool === 'ground' || state.editorTool === 'path' || state.editorTool === 'eraser') {
+    // 开始连续绘制
+    isPainting = true;
+    lastPaintedCell = { x: gridX, y: gridY };
+
+    // 保存历史记录
+    saveEditHistory();
+
+    if (state.editorTool === 'eraser') {
+      eraseAt(gridX, gridY);
+    } else {
+      paintTerrain(gridX, gridY, state.editorTerrain);
+    }
+  }
+}
+
+function handleCanvasMouseUp(e) {
+  if (!state.isEditMode) return;
+
+  if (isDragging && dragBuilding) {
+    // 拖拽结束，保存位置变更
+    console.log(`建筑 ${dragBuilding.name} 移动到 (${dragBuilding.x}, ${dragBuilding.y})`);
+    saveEditHistory();
+  }
+
+  isDragging = false;
+  isPainting = false;
+  dragBuilding = null;
+  lastPaintedCell = null;
+}
+
+// ========== 撤销/重做功能 ==========
+function saveEditHistory() {
+  // 如果不在历史末尾，删除后面的历史
+  if (editHistory.index < editHistory.stack.length - 1) {
+    editHistory.stack = editHistory.stack.slice(0, editHistory.index + 1);
+  }
+
+  // 保存当前状态
+  const snapshot = {
+    mapData: state.mapData?.map(row => [...row]),
+    buildings: state.editorBuildings?.map(b => ({ ...b }))
+  };
+
+  editHistory.stack.push(snapshot);
+
+  // 限制历史记录大小
+  if (editHistory.stack.length > editHistory.maxSize) {
+    editHistory.stack.shift();
+  } else {
+    editHistory.index++;
+  }
+}
+
+function undo() {
+  if (editHistory.index > 0) {
+    editHistory.index--;
+    restoreFromHistory(editHistory.stack[editHistory.index]);
+    showHint('已撤销');
+  }
+}
+
+function redo() {
+  if (editHistory.index < editHistory.stack.length - 1) {
+    editHistory.index++;
+    restoreFromHistory(editHistory.stack[editHistory.index]);
+    showHint('已重做');
+  }
+}
+
+function restoreFromHistory(snapshot) {
+  if (snapshot.mapData) {
+    state.mapData = snapshot.mapData.map(row => [...row]);
+  }
+  if (snapshot.buildings) {
+    state.editorBuildings = snapshot.buildings.map(b => ({ ...b }));
+  }
+  renderBuildingListInEditor();
+  updateEditorInfo();
+}
+
+function handleEditorKeyDown(e) {
+  if (!state.isEditMode) return;
+
+  // Ctrl+Z 撤销, Ctrl+Y/Ctrl+Shift+Z 重做
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+      e.preventDefault();
+      redo();
+    }
+  }
+
+  // Delete 键删除选中建筑
+  if (e.key === 'Delete' && state.editorSelectedBuilding) {
+    const index = state.editorBuildings.findIndex(b => b.id === state.editorSelectedBuilding.id);
+    if (index !== -1) {
+      saveEditHistory();
+      state.editorBuildings.splice(index, 1);
+      state.editorSelectedBuilding = null;
+      renderBuildingListInEditor();
+      renderEditorBuildingProperties();
+      updateEditorInfo();
+      showHint('建筑已删除');
     }
   }
 }
@@ -1036,6 +1239,9 @@ function initEditor() {
 
   // 设置编辑模式事件监听
   setupEditorListeners();
+
+  // 保存初始历史状态
+  saveEditHistory();
 }
 
 function initMapData() {
@@ -1194,8 +1400,35 @@ function toggleEditMode() {
 
 function applyChangesToWorld() {
   // 将编辑的建筑同步回 world
-  // 这里简化处理，实际应该更新 world.objects
+  if (!state.world || !state.editorBuildings) {
+    console.warn('World或建筑数据不存在，无法应用更改');
+    return;
+  }
+
   console.log('应用地图更改到世界...');
+
+  // 清空现有 objects
+  state.world.objects.clear();
+
+  // 重新添加编辑后的建筑
+  for (const b of state.editorBuildings) {
+    const buildingObj = {
+      id: b.id,
+      name: b.name,
+      type: b.type || 'building',
+      position: { x: b.x, y: b.y, area: b.name },
+      interactable: true,
+      description: b.description || '',
+      width: b.width || 3,
+      height: b.height || 3,
+      obstacle: b.obstacle !== false // 默认为true
+    };
+    state.world.objects.set(b.id, buildingObj);
+    console.log(`  添加建筑: ${b.name} (${b.x}, ${b.y})`);
+  }
+
+  console.log(`已应用 ${state.editorBuildings.length} 个建筑到世界`);
+  showHint(`已应用 ${state.editorBuildings.length} 个建筑`);
 }
 
 function handleCanvasClickForEditor(e) {
@@ -1359,7 +1592,8 @@ function handleSaveBuilding(e) {
       state.editorBuildings[index] = { ...state.editorBuildings[index], ...buildingData };
     }
   } else {
-    // 新建建筑
+    // 新建建筑 - 保存历史
+    saveEditHistory();
     state.editorBuildings.push(buildingData);
   }
 
@@ -1482,6 +1716,7 @@ function loadMapData(e) {
 function clearMap() {
   if (!confirm('确定要清空所有建筑和地形吗？此操作不可恢复。')) return;
 
+  saveEditHistory();
   initMapData();
   state.editorBuildings = [];
   state.editorSelectedBuilding = null;
