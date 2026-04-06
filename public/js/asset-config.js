@@ -19,6 +19,16 @@ export const ASSET_CONFIG = {
       portrait: 'portraits/xiaohong.png',
       displaySize: [48, 48]
     },
+    xiaomi: {
+      sprite: 'characters/default.png',
+      portrait: 'portraits/default.png',
+      displaySize: [48, 48]
+    },
+    xiaodong: {
+      sprite: 'characters/default.png',
+      portrait: 'portraits/default.png',
+      displaySize: [48, 48]
+    },
     default: {
       sprite: 'characters/default.png',
       portrait: 'portraits/default.png',
@@ -40,9 +50,17 @@ export const ASSET_CONFIG = {
       sprite: 'buildings/home1.png', 
       displaySize: [80, 80] 
     },
-    home2: { 
-      sprite: 'buildings/home2.png', 
-      displaySize: [80, 80] 
+    home2: {
+      sprite: 'buildings/home2.png',
+      displaySize: [80, 80]
+    },
+    home3: {
+      sprite: 'buildings/home3.png',
+      displaySize: [80, 80]
+    },
+    home4: {
+      sprite: 'buildings/home4.png',
+      displaySize: [80, 80]
     },
     shop: { 
       sprite: 'buildings/shop.png', 
