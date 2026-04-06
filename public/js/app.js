@@ -31,7 +31,10 @@ const agentTemplates = {
     age: 25,
     traits: '开朗活泼，喜欢社交，热爱咖啡和音乐',
     background: '一名软件工程师，在一家互联网公司工作。喜欢尝试新事物，周末经常和朋友聚会。',
-    goals: ['学习新技能', '结交新朋友', '保持健康生活方式']
+    goals: ['学习新技能', '结交新朋友', '保持健康生活方式'],
+    healthMax: 10,
+    greenPoints: 10,
+    fullness: 8
   },
   xiaohong: {
     id: 'xiaohong',
@@ -39,7 +42,32 @@ const agentTemplates = {
     age: 24,
     traits: '温柔细腻，喜欢阅读，安静内敛',
     background: '一名图书管理员，热爱文学和艺术。喜欢在咖啡馆看书，享受独处时光。',
-    goals: ['读完 100 本书', '学习绘画', '开一家咖啡馆']
+    goals: ['读完 100 本书', '学习绘画', '开一家咖啡馆'],
+    healthMax: 8,
+    greenPoints: 10,
+    fullness: 7
+  },
+  xiaomi: {
+    id: 'xiaomi',
+    name: '小米',
+    age: 22,
+    traits: '活泼可爱，喜欢美食，乐观向上',
+    background: '一名美食博主，喜欢探索各种美食。性格开朗，总是能给身边的人带来快乐。',
+    goals: ['成为顶级美食博主', '开一家餐厅', '环游世界品尝美食'],
+    healthMax: 9,
+    greenPoints: 10,
+    fullness: 6
+  },
+  xiaodong: {
+    id: 'xiaodong',
+    name: '小东',
+    age: 26,
+    traits: '沉稳内敛，喜欢运动，注重健康',
+    background: '一名健身教练，热爱各种运动。生活规律，是朋友们的健康顾问。',
+    goals: ['帮助更多人健康生活', '参加马拉松比赛', '开一家健身房'],
+    healthMax: 10,
+    greenPoints: 10,
+    fullness: 9
   }
 };
 
@@ -1072,6 +1100,16 @@ function showAgentDetails(agentId) {
   document.getElementById('modal-agent-traits').textContent = agent.config.traits;
   document.getElementById('modal-agent-position').textContent = `(${agent.position.x}, ${agent.position.y})`;
   document.getElementById('modal-agent-status').textContent = agent.status;
+
+  // 显示生存属性
+  const healthEl = document.getElementById('modal-agent-health');
+  if (healthEl) healthEl.textContent = `${agent.health.current}/${agent.health.max}`;
+
+  const greenPointsEl = document.getElementById('modal-agent-greenpoints');
+  if (greenPointsEl) greenPointsEl.textContent = agent.greenPoints.toLocaleString();
+
+  const fullnessEl = document.getElementById('modal-agent-fullness');
+  if (fullnessEl) fullnessEl.textContent = `${agent.fullness}/10`;
   const actionText = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
   document.getElementById('modal-agent-action').textContent = actionText || '无';
   document.getElementById('modal-agent-background').textContent = agent.config.background;
@@ -1157,7 +1195,9 @@ function addEvent(event) {
 async function addDefaultAgents() {
   const positions = [
     { name: 'xiaoming', x: 5, y: 5 },
-    { name: 'xiaohong', x: 40, y: 35 }
+    { name: 'xiaohong', x: 40, y: 35 },
+    { name: 'xiaomi', x: 5, y: 35 },
+    { name: 'xiaodong', x: 40, y: 5 }
   ];
 
   for (const pos of positions) {

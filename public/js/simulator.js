@@ -80,6 +80,22 @@ class WorldSimulator extends EventTarget {
         position: { x: 15, y: 30, area: '图书馆' },
         interactable: true,
         description: '安静的阅读场所'
+      },
+      {
+        id: 'home3',
+        name: '小米家',
+        type: 'building',
+        position: { x: 5, y: 35, area: '家' },
+        interactable: true,
+        description: '小米的美食小屋，总是飘着诱人的香气'
+      },
+      {
+        id: 'home4',
+        name: '小东家',
+        type: 'building',
+        position: { x: 40, y: 5, area: '家' },
+        interactable: true,
+        description: '小东的健身之家，充满运动活力'
       }
     ];
 
@@ -424,6 +440,9 @@ class WorldSimulator extends EventTarget {
       position: state.position,
       status: state.status,
       currentAction: state.currentAction,
+      health: agent.health,
+      greenPoints: agent.greenPoints,
+      fullness: agent.fullness,
       config: {
         age: agent.config.age,
         traits: agent.config.traits,

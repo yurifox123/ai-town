@@ -31,6 +31,14 @@ class Agent {
     this.nearbyAgents = new Set();
     this.lastConversation = new Map();
 
+    // 生存属性
+    this.health = {
+      current: config.healthMax || 10, // 当前健康值
+      max: config.healthMax || 10      // 健康值上限 (5-10，不同人不同)
+    };
+    this.greenPoints = config.greenPoints || 10; // 绿色积分，初始10，范围-10000~10000000
+    this.fullness = config.fullness || 10;       // 饱腹值 1-10
+
     // 记忆类型
     this.MemoryType = {
       OBSERVATION: 'OBSERVATION',
@@ -529,6 +537,9 @@ ${memoryContext}
       position: this.position,
       status: this.status,
       currentAction: this.currentAction,
+      health: this.health,
+      greenPoints: this.greenPoints,
+      fullness: this.fullness,
       memory: this.memory.exportData()
     };
   }
@@ -541,6 +552,15 @@ ${memoryContext}
     agent.position = data.position;
     agent.status = data.status || 'idle';
     agent.currentAction = data.currentAction || null;
+    if (data.health) {
+      agent.health = data.health;
+    }
+    if (data.greenPoints !== undefined) {
+      agent.greenPoints = data.greenPoints;
+    }
+    if (data.fullness !== undefined) {
+      agent.fullness = data.fullness;
+    }
     if (data.memory) {
       agent.memory.importData(data.memory);
     }

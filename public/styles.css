@@ -637,6 +637,39 @@ body {
 }
 
 .status-badge.busy { background: var(--warning-color); }
+
+/* 生存属性统计 */
+.stats-row {
+  display: flex;
+  flex-direction: row !important;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.stat-icon {
+  font-size: 0.9rem;
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.stat-value {
+  color: var(--text-color);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
 .status-badge.sleeping { background: var(--secondary-color); }
 
 /* Tabs */
