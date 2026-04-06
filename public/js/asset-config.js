@@ -20,13 +20,13 @@ export const ASSET_CONFIG = {
       displaySize: [48, 48]
     },
     xiaomi: {
-      sprite: 'characters/default.png',
-      portrait: 'portraits/default.png',
+      sprite: 'characters/xiaomi.png',
+      portrait: 'portraits/xiaomi.png',
       displaySize: [48, 48]
     },
     xiaodong: {
-      sprite: 'characters/default.png',
-      portrait: 'portraits/default.png',
+      sprite: 'characters/xiaodong.png',
+      portrait: 'portraits/xiaodong.png',
       displaySize: [48, 48]
     },
     default: {
