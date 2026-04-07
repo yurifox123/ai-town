@@ -18,7 +18,7 @@ const CONFIG = {
   TICK_INTERVAL: 5000,
   WORLD_WIDTH: 50,
   WORLD_HEIGHT: 50,
-  TIME_SCALE: 60,
+  TIME_SCALE: 5, // 1秒现实时间 = 5分钟游戏时间
   SHOW_GRID: false,
   SPRITE_SCALE: 1.0
 };
@@ -722,10 +722,11 @@ function drawAgent(ctx, agent, cellSize) {
   const bubble = dialogueBubbles.get(agent.agentId);
   if (bubble) {
     const nameY = y - (sprite ? displaySize[1] : cellSize) / 2 - 8;
-    const bubbleY = nameY - 50; // 调高位置
-    const padding = 8;
-    const maxWidth = 150;
+    const bubbleY = nameY - 20; // 基础位置
+    const paddingY = 8;  // 垂直内边距
+    const fixedWidth = 150; // 固定宽度
     const lineHeight = 16; // 每行高度
+    const fontSize = 11;
 
     // 处理文字换行（每12个字换一行）
     const lines = [];
@@ -733,41 +734,39 @@ function drawAgent(ctx, agent, cellSize) {
       lines.push(bubble.message.substring(i, i + 12));
     }
 
-    ctx.font = '11px sans-serif';
-    // 计算最大宽度
-    let maxTextWidth = 0;
-    for (const line of lines) {
-      const lineWidth = ctx.measureText(line).width;
-      if (lineWidth > maxTextWidth) maxTextWidth = lineWidth;
-    }
-    maxTextWidth = Math.min(maxTextWidth, maxWidth - padding * 2);
-
-    const bubbleWidth = maxTextWidth + padding * 2;
-    const bubbleHeight = 28 * 1.5 + (lines.length - 1) * lineHeight; // 高度增加50%，多行额外高度
+    // 固定宽度，高度根据行数动态计算
+    const bubbleWidth = fixedWidth;
+    // 高度 = 上下内边距 + 文字行数高度
+    const bubbleHeight = paddingY * 2 + lines.length * lineHeight;
+    // 气泡底部位置
+    const bubbleBottomY = bubbleY;
+    const bubbleTopY = bubbleBottomY - bubbleHeight;
 
     // 绘制气泡背景
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(x - bubbleWidth / 2, bubbleY - bubbleHeight, bubbleWidth, bubbleHeight, 6);
+    ctx.roundRect(x - bubbleWidth / 2, bubbleTopY, bubbleWidth, bubbleHeight, 6);
     ctx.fill();
     ctx.stroke();
 
-    // 绘制小三角
+    // 绘制小三角（在气泡底部）
     ctx.beginPath();
-    ctx.moveTo(x - 6, bubbleY);
-    ctx.lineTo(x, bubbleY + 6);
-    ctx.lineTo(x + 6, bubbleY);
+    ctx.moveTo(x - 6, bubbleBottomY);
+    ctx.lineTo(x, bubbleBottomY + 6);
+    ctx.lineTo(x + 6, bubbleBottomY);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // 绘制文字（多行）
+    // 绘制文字（多行，垂直居中）
     ctx.fillStyle = '#333';
     ctx.textAlign = 'center';
-    ctx.font = '11px sans-serif';
-    const startY = bubbleY - bubbleHeight / 2 + 6; // 起始Y位置
+    ctx.font = fontSize + 'px sans-serif';
+    // 计算起始Y位置（垂直居中）
+    const totalTextHeight = lines.length * lineHeight;
+    const startY = bubbleTopY + paddingY + (bubbleHeight - paddingY * 2 - totalTextHeight) / 2 + lineHeight / 2 + 2;
     for (let i = 0; i < lines.length; i++) {
       ctx.fillText(lines[i], x, startY + i * lineHeight);
     }
