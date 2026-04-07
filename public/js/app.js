@@ -722,13 +722,28 @@ function drawAgent(ctx, agent, cellSize) {
   const bubble = dialogueBubbles.get(agent.agentId);
   if (bubble) {
     const nameY = y - (sprite ? displaySize[1] : cellSize) / 2 - 8;
-    const bubbleY = nameY - 35;
+    const bubbleY = nameY - 50; // 调高位置
     const padding = 8;
     const maxWidth = 150;
+    const lineHeight = 16; // 每行高度
+
+    // 处理文字换行（每12个字换一行）
+    const lines = [];
+    for (let i = 0; i < bubble.message.length; i += 12) {
+      lines.push(bubble.message.substring(i, i + 12));
+    }
+
     ctx.font = '11px sans-serif';
-    const textWidth = Math.min(ctx.measureText(bubble.message).width, maxWidth - padding * 2);
-    const bubbleWidth = textWidth + padding * 2;
-    const bubbleHeight = 28;
+    // 计算最大宽度
+    let maxTextWidth = 0;
+    for (const line of lines) {
+      const lineWidth = ctx.measureText(line).width;
+      if (lineWidth > maxTextWidth) maxTextWidth = lineWidth;
+    }
+    maxTextWidth = Math.min(maxTextWidth, maxWidth - padding * 2);
+
+    const bubbleWidth = maxTextWidth + padding * 2;
+    const bubbleHeight = 28 * 1.5 + (lines.length - 1) * lineHeight; // 高度增加50%，多行额外高度
 
     // 绘制气泡背景
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
@@ -748,10 +763,14 @@ function drawAgent(ctx, agent, cellSize) {
     ctx.fill();
     ctx.stroke();
 
-    // 绘制文字
+    // 绘制文字（多行）
     ctx.fillStyle = '#333';
     ctx.textAlign = 'center';
-    ctx.fillText(bubble.message, x, bubbleY - bubbleHeight / 2 + 4);
+    ctx.font = '11px sans-serif';
+    const startY = bubbleY - bubbleHeight / 2 + 6; // 起始Y位置
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], x, startY + i * lineHeight);
+    }
   }
 }
 
