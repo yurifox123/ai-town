@@ -57,7 +57,8 @@ class Agent {
       THINK: 'THINK',
       WAIT: 'WAIT',
       SLEEP: 'SLEEP',
-      WORK: 'WORK'
+      WORK: 'WORK',
+      BUY: 'BUY'
     };
   }
 
@@ -162,11 +163,16 @@ class Agent {
 
     // 附近建筑提示
     let nearbyBuildings = '';
+    let canBuyFood = false;
     for (const obj of worldState.objects.values()) {
       const distance = Math.abs(obj.position.x - this.position.x) + Math.abs(obj.position.y - this.position.y);
       if (distance <= 3 && obj.services) {
-        const services = obj.services.map(s => `${s.name}(+${s.fullness || s.health || ''})`).join(', ');
+        const foodServices = obj.services.filter(s => s.fullness > 0);
+        const services = obj.services.map(s => `${s.name}(+${s.fullness || s.health || ''},${s.cost}积分)`).join(', ');
         nearbyBuildings += `- ${obj.name}: ${services}\n`;
+        if (foodServices.length > 0) {
+          canBuyFood = true;
+        }
       }
     }
 
@@ -195,11 +201,12 @@ ${nearbyBuildings || '无'}
 
 请决定你接下来要做什么。用JSON格式输出你的决定：
 {
-  "action": "MOVE|TALK|WAIT|SLEEP|WORK",
+  "action": "MOVE|TALK|WAIT|SLEEP|WORK|BUY",
   "description": "行动描述",
   "targetX": 目标x坐标(如果是移动),
   "targetY": 目标y坐标(如果是移动),
-  "hourlyRate": 时薪(如果是工作，可选15-25)
+  "hourlyRate": 时薪(如果是工作，可选15-25),
+  "serviceName": "服务名称(如果是购买)"
 }
 
 行动说明:
@@ -208,13 +215,16 @@ ${nearbyBuildings || '无'}
 - WAIT: 原地等待
 - SLEEP: 回家睡觉(恢复健康和饱腹)
 - WORK: 在工作地点工作赚取积分
+- BUY: 在附近建筑购买食物或服务${canBuyFood ? '，你现在就在建筑附近可以购买' : ''}
 
 决策优先级:
 1. 健康<30或饱腹<20: 优先处理生存需求
 2. 积分为负: 优先去咖啡馆或便利店工作
 3. 深夜(22:00-6:00): 倾向回家睡觉
-4. 饱腹<40: 优先去有食物的地方
+4. 饱腹<40: 优先去有食物的地方，到达后购买食物
 5. 积分<30: 考虑工作赚钱
+
+${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY行动购买食物恢复饱腹。' : ''}
 
 如果没有特定目标位置，可以随机移动到附近位置。`;
 
@@ -269,6 +279,13 @@ ${nearbyBuildings || '无'}
           type: this.ActionType.WORK,
           description: decision.description || '工作',
           hourlyRate: decision.hourlyRate || 15,
+          timestamp: new Date()
+        };
+      } else if (actionType === 'BUY') {
+        return {
+          type: this.ActionType.BUY,
+          description: decision.description || '购买',
+          serviceName: decision.serviceName || '',
           timestamp: new Date()
         };
       } else {
@@ -335,6 +352,51 @@ ${nearbyBuildings || '无'}
 
       case this.ActionType.WORK:
         this.status = 'working';
+        break;
+
+      case this.ActionType.BUY:
+        // 寻找附近有可购买服务的建筑
+        if (world && world.objects) {
+          let bestBuilding = null;
+          let bestService = null;
+          let minDistance = Infinity;
+
+          for (const obj of world.objects.values()) {
+            if (!obj.services) continue;
+
+            const distance = Math.abs(obj.position.x - this.position.x) + Math.abs(obj.position.y - this.position.y);
+            if (distance <= 5 && distance < minDistance) {
+              // 找食物服务
+              const foodServices = obj.services.filter(s => s.fullness > 0 && this.greenPoints >= s.cost);
+              if (foodServices.length > 0) {
+                // 如果指定了服务名，找匹配的
+                if (action.serviceName) {
+                  const matchedService = foodServices.find(s => s.name === action.serviceName);
+                  if (matchedService) {
+                    bestBuilding = obj;
+                    bestService = matchedService;
+                    minDistance = distance;
+                  }
+                } else {
+                  // 否则找性价比最高的
+                  bestBuilding = obj;
+                  bestService = foodServices.sort((a, b) => (b.fullness / b.cost) - (a.fullness / a.cost))[0];
+                  minDistance = distance;
+                }
+              }
+            }
+          }
+
+          if (bestBuilding && bestService) {
+            await this.interactWithObject(bestBuilding, bestService);
+          } else {
+            await this.memory.addMemory(
+              '想购买食物但附近没有合适的地点或积分不足',
+              this.MemoryType.OBSERVATION,
+              4
+            );
+          }
+        }
         break;
     }
 
