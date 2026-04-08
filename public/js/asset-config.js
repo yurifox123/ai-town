@@ -44,7 +44,7 @@ export const ASSET_CONFIG = {
     },
     park: { 
       sprite: 'buildings/park.png', 
-      displaySize: [120, 96] 
+      displaySize: [190, 180] 
     },
     home1: { 
       sprite: 'buildings/home1.png', 

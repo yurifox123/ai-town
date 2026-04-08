@@ -11,7 +11,7 @@ AI生态小镇 (AI Eco Town) is a multi-agent simulation system based on Stanfor
 ## Common Commands
 
 ```bash
-# Start web server (default)
+# Start web server (default) - runs on port 3061
 npm start
 
 # Development with hot reload
@@ -22,6 +22,9 @@ npm run build
 
 # Run tests
 npm test
+
+# Run a single test file
+npx vitest run src/path/to/test.ts
 
 # Lint
 npm run lint
@@ -46,15 +49,16 @@ The system has been refactored from a CLI-based simulator to a browser-based sim
 
 2. **Browser-Based Simulation** (`public/js/app.js`) - Frontend contains:
    - `Agent` class - Perception, decision-making, and action execution
-   - `World` class - 2D grid simulation with tick-based timing
+   - `WorldSimulator` class - 2D grid simulation with tick-based timing
    - `MemorySystem` - Three-layer memory (observations, reflections, plans)
    - `LLMClient` - Communicates with backend `/api/llm/chat` endpoint
+   - `Renderer` - Canvas-based 2D rendering with sprite support
 
 ### Movement System
 
 Agent movement is now independent of the simulation tick:
 - **Tick interval** (`TICK_INTERVAL_MS`): Controls decision-making frequency (default: 5000ms)
-- **Move interval**: 0.2 seconds per grid cell
+- **Move interval**: 200ms per grid cell
 - Agents make new decisions only every 50 ticks or when they reach their destination
 
 ### Memory Retrieval Algorithm
@@ -95,24 +99,34 @@ OPENAI_MODEL=gpt-4o-mini
 ## Project Structure
 
 ```
-src/
+src/                        # TypeScript source (legacy CLI + server)
 ├── server/
 │   └── simple-server.ts    # HTTP server + LLM proxy
-└── ...                     # Legacy CLI code (may still exist)
+├── types/
+│   └── index.ts            # TypeScript interfaces and enums
+├── data/
+│   └── agent-templates.ts  # Legacy agent templates
+└── ...                     # Other legacy CLI code
 
-public/                     # Static frontend files
+public/                     # Static frontend files (primary simulation)
 ├── index.html              # Main HTML
 ├── styles.css              # Dark theme UI
 ├── js/
-│   ├── app.js              # Main simulation logic (agents, world, memory)
-│   ├── agent.js            # Agent class implementation
-│   ├── world.js            # World simulation
-│   ├── memory-system.js    # Memory management
+│   ├── app.js              # Main simulation logic, UI, event handling
+│   ├── agent.js            # Agent class (perception, decisions, actions)
+│   ├── simulator.js        # WorldSimulator class (world state, tick loop)
+│   ├── memory.js           # MemorySystem class (storage, retrieval, reflection)
 │   ├── llm-client.js       # Frontend LLM client
-│   ├── renderer.js         # Canvas rendering
-│   └── image-loader.js     # Asset loading
-├── assets/                 # Images and other assets
-└── vibe_images/            # Generated content
+│   ├── renderer.js         # Canvas rendering with sprite support
+│   ├── image-loader.js     # Asset loading manager
+│   ├── asset-config.js     # Sprite paths and display sizes
+│   └── building-editor.js  # Map editing tools
+└── assets/                 # Images and sprites
+    ├── characters/         # Agent sprites (48x48px)
+    ├── portraits/          # Agent portraits for UI
+    ├── buildings/          # Building sprites
+    ├── tiles/              # Ground tiles
+    └── ui/                 # UI elements
 ```
 
 ## Key Types
@@ -129,7 +143,7 @@ Critical variables (from `.env.example`):
 - `CUSTOM_EMBEDDING_ENDPOINT` / `CUSTOM_EMBEDDING_RESPONSE_PATH` - Optional embedding service
 - `TICK_INTERVAL_MS` - Simulation tick interval (default: 5000ms)
 - `WORLD_WIDTH` / `WORLD_HEIGHT` - Map dimensions (default: 50x50)
-- `TIME_SCALE` - Game time speed (default: 60, meaning 1 real second = 1 game minute)
+- `TIME_SCALE` - Game time speed (default: 5, meaning 1 real second = 5 game minutes)
 
 ## Web Frontend
 
@@ -152,6 +166,7 @@ Then open your browser to `http://localhost:3061` (or the port shown in console)
 - **Event Log**: Real-time display of world events and Agent actions
 - **Simulation Control**: Start/stop/pause simulation from the web interface
 - **Interactive Map**: Hover over elements to see tooltips, click Agents for details
+- **Map Editor**: Build mode for editing terrain and placing buildings (toggle with "编辑地图" button)
 
 ### API Endpoints
 
@@ -160,6 +175,15 @@ The server exposes these endpoints:
 - `POST /api/llm/chat` - Proxy LLM requests (messages, options)
 - `POST /api/llm/embedding` - Get text embeddings
 - `POST /api/stop` - Shut down the server
+
+## Asset Configuration
+
+Character and building sprites are configured in `public/js/asset-config.js`:
+- Characters have `sprite` (world), `portrait` (UI), and `displaySize`
+- Buildings have `sprite` and `displaySize`
+- Supports dynamic loading with fallback to default
+
+**Note:** Agent templates in `public/js/app.js` (xiaoming, xiaohong, xiaomi, xiaodong) are different from the legacy templates in `src/data/agent-templates.ts`.
 
 ## TypeScript Configuration
 

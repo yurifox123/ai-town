@@ -33,11 +33,11 @@ class Agent {
 
     // 生存属性
     this.health = {
-      current: config.healthMax || 10, // 当前健康值
-      max: config.healthMax || 10      // 健康值上限 (5-10，不同人不同)
+      current: config.healthMax || 100, // 当前健康值 (0-100)
+      max: config.healthMax || 100      // 健康值上限
     };
     this.greenPoints = config.greenPoints || 10; // 绿色积分，初始10，范围-10000~10000000
-    this.fullness = config.fullness || 10;       // 饱腹值 1-10
+    this.fullness = config.fullness || 80;       // 饱腹值 (0-100)
 
     // 记忆类型
     this.MemoryType = {

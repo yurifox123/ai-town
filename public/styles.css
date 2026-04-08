@@ -163,6 +163,45 @@ body {
   color: var(--border-color);
 }
 
+/* 小镇血量（生态健康度） */
+.town-health {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.town-health-icon {
+  font-size: 1rem;
+}
+
+.town-health-bar {
+  width: 60px;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.town-health-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2980b9);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.town-health-text {
+  font-size: 0.75rem;
+  color: var(--text-color);
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
+}
+
 .header-right {
   display: flex;
   align-items: center;
@@ -235,6 +274,155 @@ body {
   color: var(--primary-color);
   display: block;
   margin-bottom: 0.25rem;
+}
+
+/* ========== 角色属性卡片 ========== */
+.agent-card {
+  position: absolute;
+  background: var(--bg-glass);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  padding: 0.75rem;
+  min-width: 200px;
+  max-width: 240px;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+.agent-card.hidden {
+  display: none;
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.agent-card-portrait {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--primary-color);
+}
+
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-color);
+}
+
+.agent-card-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.agent-card-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.agent-card-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-color);
+}
+
+.agent-card-body {
+  margin-bottom: 0.75rem;
+}
+
+.agent-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.agent-card-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.agent-card-stat .stat-icon {
+  font-size: 0.9rem;
+  width: 18px;
+  text-align: center;
+}
+
+.agent-card-stat .stat-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.agent-card-stat .stat-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+.agent-card-stat .stat-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 45px;
+  text-align: right;
+}
+
+.agent-card-action {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.agent-card-action .action-label {
+  color: var(--text-muted);
+}
+
+.agent-card-action .action-value {
+  color: var(--text-color);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card-footer {
+  display: flex;
+  justify-content: center;
+}
+
+.agent-card-footer .btn {
+  width: 100%;
 }
 
 /* ========== 侧边栏 ========== */
@@ -377,6 +565,20 @@ body {
   color: var(--text-muted);
   margin-top: 0.25rem;
   font-family: monospace;
+}
+
+.agent-stats {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.agent-stats .stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
 }
 
 /* 事件日志 */
@@ -670,6 +872,70 @@ body {
   font-weight: 600;
   font-size: 0.8rem;
 }
+
+/* 条形图样式 */
+.stats-bars {
+  flex-direction: column !important;
+  gap: 0.75rem;
+}
+
+.stat-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.stat-bar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+}
+
+.stat-bar-track {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  width: 0%;
+  min-width: 2px;
+}
+
+.health-bar {
+  background: linear-gradient(90deg, #e74c3c, #c0392b);
+}
+
+.fullness-bar {
+  background: linear-gradient(90deg, #f39c12, #e67e22);
+}
+
+.points-bar {
+  background: linear-gradient(90deg, #27ae60, #229954);
+}
+
+/* 积分纯文本显示 */
+.stat-points-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: 0.25rem;
+}
+
+.stat-points-item .points-value {
+  color: #27ae60;
+  font-weight: 600;
+}
+
 .status-badge.sleeping { background: var(--secondary-color); }
 
 /* Tabs */

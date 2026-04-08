@@ -19,11 +19,20 @@ class WorldSimulator extends EventTarget {
     this.gameTime = new Date();
     this.gameTime.setHours(8, 0, 0, 0);
 
-    this.isRunning = false;
-    this.tickInterval = null;
-    this.tickCount = 0;
+    this.tickIntervalMs = 5000; // 默认tick间隔（毫秒）
+    this.timeUpdateInterval = null; // 实时时间流逝定时器
+    this.lastTimeUpdate = Date.now(); // 上次时间更新时间
 
     this.llm = llmClient;
+
+    // 小镇血量（生态健康度）
+    this.townHealth = {
+      current: 100,
+      max: 100
+    };
+
+    // Tick计数器
+    this.tickCount = 0;
 
     this.initializeWorld();
   }
@@ -37,7 +46,7 @@ class WorldSimulator extends EventTarget {
         id: 'cafe',
         name: '咖啡馆',
         type: 'building',
-        position: { x: 10, y: 10, area: '咖啡馆' },
+        position: { x: 15, y: 5, area: '咖啡馆' },
         interactable: true,
         description: '一个温馨的咖啡馆，提供各种咖啡和点心'
       },
@@ -45,7 +54,7 @@ class WorldSimulator extends EventTarget {
         id: 'park',
         name: '公园',
         type: 'area',
-        position: { x: 30, y: 20, area: '公园' },
+        position: { x: 33, y: 18, area: '公园' },
         interactable: true,
         description: '绿树成荫的公园，适合散步和放松'
       },
@@ -61,7 +70,7 @@ class WorldSimulator extends EventTarget {
         id: 'home2',
         name: '小红家',
         type: 'building',
-        position: { x: 40, y: 35, area: '家' },
+        position: { x: 45, y: 35, area: '家' },
         interactable: true,
         description: '小红的公寓'
       },
@@ -69,7 +78,7 @@ class WorldSimulator extends EventTarget {
         id: 'shop',
         name: '便利店',
         type: 'building',
-        position: { x: 25, y: 15, area: '商店' },
+        position: { x: 22, y: 15, area: '商店' },
         interactable: true,
         description: '24小时便利店'
       },
@@ -77,7 +86,7 @@ class WorldSimulator extends EventTarget {
         id: 'library',
         name: '图书馆',
         type: 'building',
-        position: { x: 15, y: 30, area: '图书馆' },
+        position: { x: 15, y: 22, area: '图书馆' },
         interactable: true,
         description: '安静的阅读场所'
       },
@@ -93,7 +102,7 @@ class WorldSimulator extends EventTarget {
         id: 'home4',
         name: '小东家',
         type: 'building',
-        position: { x: 40, y: 5, area: '家' },
+        position: { x: 45, y: 5, area: '家' },
         interactable: true,
         description: '小东的健身之家，充满运动活力'
       }
@@ -152,7 +161,25 @@ class WorldSimulator extends EventTarget {
     if (this.isRunning) return;
 
     this.isRunning = true;
+    this.tickIntervalMs = tickIntervalMs;
     this.tickInterval = setInterval(() => this.tick(), tickIntervalMs);
+
+    // 启动实时时间流逝（每秒更新一次）
+    this.lastTimeUpdate = Date.now();
+    this.timeUpdateInterval = setInterval(() => {
+      const now = Date.now();
+      const realSeconds = (now - this.lastTimeUpdate) / 1000;
+      this.lastTimeUpdate = now;
+
+      // 推进游戏时间：现实1秒 = 游戏timeScale分钟
+      const gameMinutes = realSeconds * this.timeScale;
+      this.gameTime = new Date(this.gameTime.getTime() + gameMinutes * 60 * 1000);
+
+      // 触发时间更新事件
+      this.dispatchEvent(new CustomEvent('timeUpdate', {
+        detail: { time: this.gameTime, townHealth: this.townHealth }
+      }));
+    }, 1000); // 每秒更新一次
 
     this.dispatchEvent(new CustomEvent('started'));
   }
@@ -166,17 +193,29 @@ class WorldSimulator extends EventTarget {
       clearInterval(this.tickInterval);
       this.tickInterval = null;
     }
+    // 停止实时时间流逝
+    if (this.timeUpdateInterval) {
+      clearInterval(this.timeUpdateInterval);
+      this.timeUpdateInterval = null;
+    }
     this.dispatchEvent(new CustomEvent('stopped'));
   }
 
   /**
-   * 单步执行
+   * 单步执行（只执行一个tick，不影响运行状态）
+   */
+  async step() {
+    await this.tick();
+  }
+
+  /**
+   * 执行tick
    */
   async tick() {
     this.tickCount++;
 
     // 推进游戏时间
-    const realSeconds = 5; // tick间隔秒数
+    const realSeconds = this.tickIntervalMs / 1000; // 使用实际的tick间隔
     const gameMinutes = realSeconds * this.timeScale;
     this.gameTime = new Date(this.gameTime.getTime() + gameMinutes * 60 * 1000);
 
@@ -196,7 +235,8 @@ class WorldSimulator extends EventTarget {
       detail: {
         time: this.gameTime,
         agents: agentStates,
-        tickCount: this.tickCount
+        tickCount: this.tickCount,
+        townHealth: this.townHealth
       }
     }));
   }
@@ -425,7 +465,8 @@ class WorldSimulator extends EventTarget {
       objects: this.objects,
       events: this.events.slice(-20),
       tickCount: this.tickCount,
-      isRunning: this.isRunning
+      isRunning: this.isRunning,
+      townHealth: this.townHealth
     };
   }
 

@@ -20,6 +20,14 @@
         <span id="game-time" class="game-time">--:--</span>
         <span class="time-separator">|</span>
         <span id="tick-count" class="tick-count">Tick: 0</span>
+        <span class="time-separator">|</span>
+        <div class="town-health" title="小镇生态健康度">
+          <span class="town-health-icon">🏘️</span>
+          <div class="town-health-bar">
+            <div id="town-health-fill" class="town-health-fill"></div>
+          </div>
+          <span id="town-health-text" class="town-health-text">100/100</span>
+        </div>
       </div>
       <div class="header-right">
         <button id="btn-mode-toggle" class="btn btn-small btn-mode">🎮 模拟模式</button>
@@ -27,6 +35,7 @@
         <div class="control-buttons">
           <button id="btn-start" class="btn btn-primary btn-icon">▶️</button>
           <button id="btn-stop" class="btn btn-secondary btn-icon" disabled>⏸️</button>
+          <button id="btn-step" class="btn btn-info btn-icon" title="单步执行">⏭️</button>
           <button id="btn-reset" class="btn btn-warning btn-icon">🔄</button>
         </div>
         <button id="btn-stop-server" class="btn btn-small btn-danger">🛑</button>
@@ -69,6 +78,43 @@
         <div class="map-container">
           <canvas id="world-map"></canvas>
           <div id="map-tooltip" class="tooltip hidden"></div>
+          <!-- 角色属性卡片 -->
+          <div id="agent-card" class="agent-card hidden">
+            <div class="agent-card-header">
+              <img id="agent-card-portrait" class="agent-card-portrait" src="" alt="">
+              <div class="agent-card-info">
+                <div id="agent-card-name" class="agent-card-name"></div>
+                <div id="agent-card-status" class="agent-card-status"></div>
+              </div>
+              <button id="agent-card-close" class="agent-card-close">×</button>
+            </div>
+            <div class="agent-card-body">
+              <div class="agent-card-stats">
+                <div class="agent-card-stat">
+                  <span class="stat-icon">❤️</span>
+                  <div class="stat-bar">
+                    <div id="agent-card-health-bar" class="stat-bar-fill health-bar"></div>
+                  </div>
+                  <span id="agent-card-health-text" class="stat-text"></span>
+                </div>
+                <div class="agent-card-stat">
+                  <span class="stat-icon">🍖</span>
+                  <div class="stat-bar">
+                    <div id="agent-card-fullness-bar" class="stat-bar-fill fullness-bar"></div>
+                  </div>
+                  <span id="agent-card-fullness-text" class="stat-text"></span>
+                </div>
+                <div class="agent-card-stat">
+                  <span class="stat-icon">🌿</span>
+                  <span id="agent-card-points" class="stat-text"></span>
+                </div>
+              </div>
+              <div class="agent-card-action">
+                <span class="action-label">当前:</span>
+                <span id="agent-card-action" class="action-value"></span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -192,21 +238,31 @@
               <span class="info-label">当前动作:</span>
               <span id="modal-agent-action" class="info-value"></span>
             </div>
-            <div class="info-row stats-row">
-              <div class="stat-item">
-                <span class="stat-icon">❤️</span>
-                <span class="stat-label">健康:</span>
-                <span id="modal-agent-health" class="stat-value"></span>
+            <div class="info-row stats-row stats-bars">
+              <div class="stat-bar-item">
+                <div class="stat-bar-header">
+                  <span class="stat-icon">❤️</span>
+                  <span class="stat-label">健康</span>
+                  <span id="modal-agent-health" class="stat-value"></span>
+                </div>
+                <div class="stat-bar-track">
+                  <div id="modal-agent-health-bar" class="stat-bar-fill health-bar"></div>
+                </div>
               </div>
-              <div class="stat-item">
+              <div class="stat-bar-item">
+                <div class="stat-bar-header">
+                  <span class="stat-icon">🍖</span>
+                  <span class="stat-label">饱腹</span>
+                  <span id="modal-agent-fullness" class="stat-value"></span>
+                </div>
+                <div class="stat-bar-track">
+                  <div id="modal-agent-fullness-bar" class="stat-bar-fill fullness-bar"></div>
+                </div>
+              </div>
+              <div class="stat-points-item">
                 <span class="stat-icon">🌿</span>
                 <span class="stat-label">积分:</span>
-                <span id="modal-agent-greenpoints" class="stat-value"></span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-icon">🍖</span>
-                <span class="stat-label">饱腹:</span>
-                <span id="modal-agent-fullness" class="stat-value"></span>
+                <span id="modal-agent-greenpoints" class="stat-value points-value"></span>
               </div>
             </div>
           </div>

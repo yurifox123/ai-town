@@ -32,9 +32,9 @@ const agentTemplates = {
     traits: '开朗活泼，喜欢社交，热爱咖啡和音乐',
     background: '一名软件工程师，在一家互联网公司工作。喜欢尝试新事物，周末经常和朋友聚会。',
     goals: ['学习新技能', '结交新朋友', '保持健康生活方式'],
-    healthMax: 10,
+    healthMax: 100,
     greenPoints: 10,
-    fullness: 8
+    fullness: 80
   },
   xiaohong: {
     id: 'xiaohong',
@@ -43,9 +43,9 @@ const agentTemplates = {
     traits: '温柔细腻，喜欢阅读，安静内敛',
     background: '一名图书管理员，热爱文学和艺术。喜欢在咖啡馆看书，享受独处时光。',
     goals: ['读完 100 本书', '学习绘画', '开一家咖啡馆'],
-    healthMax: 8,
+    healthMax: 85,
     greenPoints: 10,
-    fullness: 7
+    fullness: 75
   },
   xiaomi: {
     id: 'xiaomi',
@@ -54,9 +54,9 @@ const agentTemplates = {
     traits: '活泼可爱，喜欢美食，乐观向上',
     background: '一名美食博主，喜欢探索各种美食。性格开朗，总是能给身边的人带来快乐。',
     goals: ['成为顶级美食博主', '开一家餐厅', '环游世界品尝美食'],
-    healthMax: 9,
+    healthMax: 90,
     greenPoints: 10,
-    fullness: 6
+    fullness: 70
   },
   xiaodong: {
     id: 'xiaodong',
@@ -65,9 +65,9 @@ const agentTemplates = {
     traits: '沉稳内敛，喜欢运动，注重健康',
     background: '一名健身教练，热爱各种运动。生活规律，是朋友们的健康顾问。',
     goals: ['帮助更多人健康生活', '参加马拉松比赛', '开一家健身房'],
-    healthMax: 10,
+    healthMax: 100,
     greenPoints: 10,
-    fullness: 9
+    fullness: 90
   }
 };
 
@@ -213,9 +213,17 @@ function hideLoadingScreen() {
 // ========== 世界事件监听 ==========
 function setupWorldListeners() {
   state.world.addEventListener('tick', (e) => {
-    updateGameTime(e.detail.time);
-    updateTickCount(e.detail.tickCount);
+    const { time, tickCount, townHealth } = e.detail;
+    updateGameTime(time);
+    updateTickCount(tickCount);
+    updateTownHealth(townHealth);
     renderAgentList();
+  });
+
+  // 实时时间更新（每秒触发）
+  state.world.addEventListener('timeUpdate', (e) => {
+    updateGameTime(e.detail.time);
+    updateTownHealth(e.detail.townHealth);
   });
 
   state.world.addEventListener('agentJoined', (e) => {
@@ -256,6 +264,9 @@ function setupUIListeners() {
   });
   document.getElementById('btn-reset').addEventListener('click', () => {
     state.world.reset();
+  });
+  document.getElementById('btn-step').addEventListener('click', async () => {
+    await state.world.step();
   });
 
   // 快捷操作
@@ -305,6 +316,9 @@ function setupUIListeners() {
       document.getElementById(`tab-${tabName}`).classList.add('active');
     });
   });
+
+  // 角色属性卡片事件
+  setupAgentCardListeners();
 }
 
 // ========== 画布初始化 ==========
@@ -675,83 +689,44 @@ function drawAgent(ctx, agent, cellSize) {
   ctx.textAlign = 'center';
   ctx.fillText(agent.name, x, nameY);
 
-  // 动作气泡（显示在头顶）
-  if (agent.currentAction) {
-    const desc = typeof agent.currentAction === 'object' ? agent.currentAction.description : agent.currentAction;
-    if (desc) {
-      // 气泡位置：在名字标签上方
-      const nameY = y - (sprite ? displaySize[1] : cellSize) / 2 - 8;
-      const bubbleY = nameY - 22;
-      const bubbleImage = imageLoader.getImage('/assets/ui/bubble.png');
+  // 计算需要显示的气泡
+  const hasAction = agent.currentAction && (typeof agent.currentAction === 'object' ? agent.currentAction.description : agent.currentAction);
+  const hasDialogue = dialogueBubbles.has(agent.agentId);
 
-      if (bubbleImage) {
-        const bubbleWidth = Math.min(desc.length * 7 + 30, 180);
-        const bubbleHeight = 32;
-        ctx.drawImage(bubbleImage, x - bubbleWidth / 2, bubbleY - bubbleHeight, bubbleWidth, bubbleHeight);
-      } else {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        const textWidth = ctx.measureText(desc.substring(0, 20)).width + 16;
-        ctx.fillRect(x - textWidth / 2, bubbleY - 20, textWidth, 24);
-        ctx.strokeStyle = '#999';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x - textWidth / 2, bubbleY - 20, textWidth, 24);
-      }
+  // 基础Y位置（名字上方）
+  const baseY = nameY - 15;
+  let currentBubbleY = baseY;
 
-      ctx.fillStyle = '#333';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(desc.substring(0, 20), x, bubbleY - 8);
-    }
-  }
+  // 绘制对话气泡（在下面）
+  if (hasDialogue) {
+    const bubble = dialogueBubbles.get(agent.agentId);
+    const paddingY = 6;
+    const fixedWidth = 120;
+    const lineHeight = 14;
+    const fontSize = 10;
+    const maxCharsPerLine = 18;
 
-  // 睡眠效果
-  if (agent.status === 'sleeping') {
-    const sleepImage = imageLoader.getImage('/assets/ui/sleep-zzz.png');
-    if (sleepImage) {
-      const oscillation = Math.sin(Date.now() / 500) * 3;
-      ctx.drawImage(sleepImage, x + 15, y - (sprite ? displaySize[1] : cellSize) / 2 - 8 + oscillation, 20, 20);
-    } else {
-      ctx.fillStyle = '#6495ed';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText('Zzz...', x + 15, y - (sprite ? displaySize[1] : cellSize) / 2);
-    }
-  }
-
-  // 对话气泡
-  const bubble = dialogueBubbles.get(agent.agentId);
-  if (bubble) {
-    const nameY = y - (sprite ? displaySize[1] : cellSize) / 2 - 8;
-    const bubbleY = nameY - 20; // 基础位置
-    const paddingY = 8;  // 垂直内边距
-    const fixedWidth = 150; // 固定宽度
-    const lineHeight = 16; // 每行高度
-    const fontSize = 11;
-
-    // 处理文字换行（每12个字换一行）
+    // 处理文字换行
     const lines = [];
-    for (let i = 0; i < bubble.message.length; i += 12) {
-      lines.push(bubble.message.substring(i, i + 12));
+    for (let i = 0; i < bubble.message.length; i += maxCharsPerLine) {
+      lines.push(bubble.message.substring(i, i + maxCharsPerLine));
     }
 
-    // 固定宽度，高度根据行数动态计算
     const bubbleWidth = fixedWidth;
-    // 高度 = 上下内边距 + 文字行数高度
     const bubbleHeight = paddingY * 2 + lines.length * lineHeight;
-    // 气泡底部位置
-    const bubbleBottomY = bubbleY;
+    const bubbleBottomY = currentBubbleY;
     const bubbleTopY = bubbleBottomY - bubbleHeight;
 
-    // 绘制气泡背景
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1;
+    // 绘制气泡背景（对话气泡用蓝色系区分）
+    ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
+    ctx.strokeStyle = '#4a90d9';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(x - bubbleWidth / 2, bubbleTopY, bubbleWidth, bubbleHeight, 6);
+    ctx.roundRect(x - bubbleWidth / 2, bubbleTopY, bubbleWidth, bubbleHeight, 8);
     ctx.fill();
     ctx.stroke();
 
-    // 绘制小三角（在气泡底部）
+    // 绘制小三角
     ctx.beginPath();
     ctx.moveTo(x - 6, bubbleBottomY);
     ctx.lineTo(x, bubbleBottomY + 6);
@@ -760,15 +735,87 @@ function drawAgent(ctx, agent, cellSize) {
     ctx.fill();
     ctx.stroke();
 
-    // 绘制文字（多行，垂直居中）
+    // 绘制文字
     ctx.fillStyle = '#333';
     ctx.textAlign = 'center';
     ctx.font = fontSize + 'px sans-serif';
-    // 计算起始Y位置（垂直居中）
-    const totalTextHeight = lines.length * lineHeight;
-    const startY = bubbleTopY + paddingY + (bubbleHeight - paddingY * 2 - totalTextHeight) / 2 + lineHeight / 2 + 2;
+    // 垂直居中：起始位置 = 顶部 + 内边距 + 字体基线偏移
+    const startY = bubbleTopY + paddingY + fontSize;
     for (let i = 0; i < lines.length; i++) {
       ctx.fillText(lines[i], x, startY + i * lineHeight);
+    }
+
+    // 下一个气泡位置向上堆叠
+    currentBubbleY = bubbleTopY - 4;
+  }
+
+  // 绘制动作气泡（在上面）
+  if (hasAction) {
+    const desc = typeof agent.currentAction === 'object' ? agent.currentAction.description : agent.currentAction;
+    const paddingY = 6;
+    const maxCharsPerLine = 8;
+    const lineHeight = 14;
+    const fontSize = 10;
+
+    // 处理文字换行
+    const lines = [];
+    for (let i = 0; i < desc.length; i += maxCharsPerLine) {
+      lines.push(desc.substring(i, i + maxCharsPerLine));
+    }
+
+    const bubbleWidth = 110;
+    const bubbleHeight = paddingY * 2 + lines.length * lineHeight;
+    const bubbleBottomY = currentBubbleY;
+    const bubbleTopY = bubbleBottomY - bubbleHeight;
+
+    // 绘制气泡背景（动作气泡用黄色系）
+    ctx.fillStyle = 'rgba(255, 250, 220, 0.95)';
+    ctx.strokeStyle = '#e6a23c';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x - bubbleWidth / 2, bubbleTopY, bubbleWidth, bubbleHeight, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // 绘制小三角
+    ctx.beginPath();
+    ctx.moveTo(x - 6, bubbleBottomY);
+    ctx.lineTo(x, bubbleBottomY + 6);
+    ctx.lineTo(x + 6, bubbleBottomY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 绘制文字
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'center';
+    ctx.font = fontSize + 'px sans-serif';
+    // 垂直居中：起始位置 = 顶部 + 内边距 + 字体基线偏移
+    const startY = bubbleTopY + paddingY + fontSize;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], x, startY + i * lineHeight);
+    }
+
+    // 如果没有对话气泡，三角形指向下方的名字；如果有，三角形指向下方气泡
+    // 这里已经通过 bubbleBottomY 位置自动实现了
+  }
+
+  // 睡眠效果
+  if (agent.status === 'sleeping') {
+    const sleepImage = imageLoader.getImage('/assets/ui/sleep-zzz.png');
+    // 计算睡眠效果位置（在最上方气泡的上面）
+    let sleepY = currentBubbleY - 25;
+    if (!hasAction && !hasDialogue) {
+      sleepY = baseY - 10;
+    }
+    if (sleepImage) {
+      const oscillation = Math.sin(Date.now() / 500) * 3;
+      ctx.drawImage(sleepImage, x + 15, sleepY + oscillation, 20, 20);
+    } else {
+      ctx.fillStyle = '#6495ed';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('Zzz...', x + 15, sleepY + 10);
     }
   }
 }
@@ -885,10 +932,91 @@ function handleCanvasClick(e) {
 
     if (mouseX >= ax - drawWidth / 2 && mouseX <= ax + drawWidth / 2 &&
         mouseY >= ay - drawHeight / 2 && mouseY <= ay + drawHeight / 2) {
-      showAgentDetails(agent.agentId);
+      // 显示属性卡片
+      showAgentCard(agent, e.clientX, e.clientY);
       return;
     }
   }
+
+  // 点击空白处关闭卡片
+  hideAgentCard();
+}
+
+// ========== 角色属性卡片 ==========
+
+function showAgentCard(agent, clickX, clickY) {
+  const card = document.getElementById('agent-card');
+  if (!card) return;
+
+  // 填充数据
+  const portraitPath = getCharacterPortrait(agent.agentId);
+  const portraitImg = document.getElementById('agent-card-portrait');
+  if (portraitImg) {
+    portraitImg.src = portraitPath || '';
+    portraitImg.onerror = () => { portraitImg.style.display = 'none'; };
+    portraitImg.onload = () => { portraitImg.style.display = 'block'; };
+  }
+
+  document.getElementById('agent-card-name').textContent = agent.name;
+  document.getElementById('agent-card-status').textContent = agent.status;
+
+  // 健康条
+  const healthCurrent = agent.health?.current ?? 0;
+  const healthMax = agent.health?.max ?? 100;
+  const healthPercent = healthMax > 0 ? (healthCurrent / healthMax) * 100 : 0;
+  document.getElementById('agent-card-health-bar').style.width = `${healthPercent}%`;
+  document.getElementById('agent-card-health-text').textContent = `${healthCurrent}/${healthMax}`;
+
+  // 饱腹条
+  const fullnessValue = agent.fullness ?? 0;
+  const fullnessPercent = Math.min(Math.max(fullnessValue, 0), 100);
+  document.getElementById('agent-card-fullness-bar').style.width = `${fullnessPercent}%`;
+  document.getElementById('agent-card-fullness-text').textContent = `${fullnessValue}/100`;
+
+  // 积分
+  document.getElementById('agent-card-points').textContent = (agent.greenPoints ?? 0).toLocaleString();
+
+  // 当前动作
+  const actionDesc = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
+  document.getElementById('agent-card-action').textContent = actionDesc || '空闲';
+
+  // 定位卡片
+  const container = document.querySelector('.map-container');
+  const containerRect = container.getBoundingClientRect();
+  const cardWidth = 240;
+  const cardHeight = 180;
+
+  let left = clickX - containerRect.left + 10;
+  let top = clickY - containerRect.top + 10;
+
+  // 边界检查
+  if (left + cardWidth > containerRect.width) {
+    left = clickX - containerRect.left - cardWidth - 10;
+  }
+  if (top + cardHeight > containerRect.height) {
+    top = clickY - containerRect.top - cardHeight - 10;
+  }
+
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+  card.classList.remove('hidden');
+}
+
+function hideAgentCard() {
+  const card = document.getElementById('agent-card');
+  if (card) {
+    card.classList.add('hidden');
+  }
+}
+
+function setupAgentCardListeners() {
+  // 关闭按钮
+  document.getElementById('agent-card-close')?.addEventListener('click', hideAgentCard);
+
+  // 点击卡片外部关闭（通过阻止事件冒泡实现）
+  document.getElementById('agent-card')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
 }
 
 // ========== 编辑模式鼠标事件 ==========
@@ -1035,6 +1163,7 @@ function updateUI() {
   const worldState = state.world.getWorldState();
   updateGameTime(worldState.time);
   updateTickCount(worldState.tickCount);
+  updateTownHealth(worldState.townHealth);
   updateSimulationStatus();
   renderAgentList();
 }
@@ -1042,11 +1171,25 @@ function updateUI() {
 function updateGameTime(time) {
   const hours = time.getHours().toString().padStart(2, '0');
   const minutes = time.getMinutes().toString().padStart(2, '0');
-  document.getElementById('game-time').textContent = `${hours}:${minutes}`;
+  const period = hours >= 12 ? '下午' : '上午';
+  const displayHours = hours % 12 || 12;
+  document.getElementById('game-time').textContent = `${period} ${displayHours}:${minutes}`;
 }
 
 function updateTickCount(count) {
-  document.getElementById('tick-count').textContent = `Tick: ${count}`;
+  const tickCount = typeof count === 'number' ? count : 0;
+  document.getElementById('tick-count').textContent = `Tick: ${tickCount}`;
+}
+
+function updateTownHealth(health) {
+  const healthFill = document.getElementById('town-health-fill');
+  const healthText = document.getElementById('town-health-text');
+  if (healthFill && health) {
+    healthFill.style.width = `${(health.current / health.max) * 100}%`;
+  }
+  if (healthText && health) {
+    healthText.textContent = `${health.current}/${health.max}`;
+  }
 }
 
 function updateSimulationStatus() {
@@ -1080,7 +1223,7 @@ function renderAgentList() {
     const actionDesc = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
     const portraitPath = getCharacterPortrait(agent.agentId);
     const portrait = portraitPath ? imageLoader.getImage(portraitPath) : null;
-    
+
     return `
       <div class="agent-item" data-agent-id="${agent.agentId}">
         <div class="agent-avatar">
@@ -1091,6 +1234,11 @@ function renderAgentList() {
           <div class="agent-name">${agent.name}</div>
           <div class="agent-status">${agent.status} · ${actionDesc || '空闲'}</div>
           <div class="agent-position">(${agent.position.x}, ${agent.position.y})</div>
+          <div class="agent-stats">
+            <span class="stat" title="健康">❤️ ${agent.health?.current ?? '-'}/${agent.health?.max ?? '-'}</span>
+            <span class="stat" title="绿色积分">🌿 ${(agent.greenPoints ?? 0).toLocaleString()}</span>
+            <span class="stat" title="饱腹">🍖 ${agent.fullness ?? '-'}/100</span>
+          </div>
         </div>
       </div>
     `;
@@ -1119,15 +1267,28 @@ function showAgentDetails(agentId) {
   document.getElementById('modal-agent-position').textContent = `(${agent.position.x}, ${agent.position.y})`;
   document.getElementById('modal-agent-status').textContent = agent.status;
 
-  // 显示生存属性
+  // 显示生存属性 - 条形图
+  const healthCurrent = agent.health?.current ?? 0;
+  const healthMax = agent.health?.max ?? 100;
   const healthEl = document.getElementById('modal-agent-health');
-  if (healthEl) healthEl.textContent = `${agent.health.current}/${agent.health.max}`;
+  const healthBar = document.getElementById('modal-agent-health-bar');
+  if (healthEl) healthEl.textContent = `${healthCurrent}/${healthMax}`;
+  if (healthBar) {
+    const healthPercent = healthMax > 0 ? (healthCurrent / healthMax) * 100 : 0;
+    healthBar.style.width = `${healthPercent}%`;
+  }
 
   const greenPointsEl = document.getElementById('modal-agent-greenpoints');
-  if (greenPointsEl) greenPointsEl.textContent = agent.greenPoints.toLocaleString();
+  if (greenPointsEl) greenPointsEl.textContent = (agent.greenPoints ?? 0).toLocaleString();
 
+  const fullnessValue = agent.fullness ?? 0;
   const fullnessEl = document.getElementById('modal-agent-fullness');
-  if (fullnessEl) fullnessEl.textContent = `${agent.fullness}/10`;
+  const fullnessBar = document.getElementById('modal-agent-fullness-bar');
+  if (fullnessEl) fullnessEl.textContent = `${fullnessValue}/100`;
+  if (fullnessBar) {
+    const fullnessPercent = Math.min(Math.max(fullnessValue, 0), 100);
+    fullnessBar.style.width = `${fullnessPercent}%`;
+  }
   const actionText = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
   document.getElementById('modal-agent-action').textContent = actionText || '无';
   document.getElementById('modal-agent-background').textContent = agent.config.background;
@@ -1213,9 +1374,9 @@ function addEvent(event) {
 async function addDefaultAgents() {
   const positions = [
     { name: 'xiaoming', x: 5, y: 5 },
-    { name: 'xiaohong', x: 40, y: 35 },
+    { name: 'xiaohong', x: 45, y: 35 },
     { name: 'xiaomi', x: 5, y: 35 },
-    { name: 'xiaodong', x: 40, y: 5 }
+    { name: 'xiaodong', x: 45, y: 5 }
   ];
 
   for (const pos of positions) {
