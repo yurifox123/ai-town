@@ -960,21 +960,21 @@ function showAgentCard(agent, clickX, clickY) {
   document.getElementById('agent-card-name').textContent = agent.name;
   document.getElementById('agent-card-status').textContent = agent.status;
 
-  // 健康条
-  const healthCurrent = agent.health?.current ?? 0;
-  const healthMax = agent.health?.max ?? 100;
+  // 健康条（保留1位小数）
+  const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
+  const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
   const healthPercent = healthMax > 0 ? (healthCurrent / healthMax) * 100 : 0;
   document.getElementById('agent-card-health-bar').style.width = `${healthPercent}%`;
   document.getElementById('agent-card-health-text').textContent = `${healthCurrent}/${healthMax}`;
 
   // 饱腹条
-  const fullnessValue = agent.fullness ?? 0;
+  const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
   const fullnessPercent = Math.min(Math.max(fullnessValue, 0), 100);
   document.getElementById('agent-card-fullness-bar').style.width = `${fullnessPercent}%`;
   document.getElementById('agent-card-fullness-text').textContent = `${fullnessValue}/100`;
 
   // 积分
-  document.getElementById('agent-card-points').textContent = (agent.greenPoints ?? 0).toLocaleString();
+  document.getElementById('agent-card-points').textContent = Math.round((agent.greenPoints ?? 0) * 10) / 10;
 
   // 当前动作
   const actionDesc = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
@@ -1188,7 +1188,9 @@ function updateTownHealth(health) {
     healthFill.style.width = `${(health.current / health.max) * 100}%`;
   }
   if (healthText && health) {
-    healthText.textContent = `${health.current}/${health.max}`;
+    const current = Math.round(health.current * 10) / 10;
+    const max = Math.round(health.max * 10) / 10;
+    healthText.textContent = `${current}/${max}`;
   }
 }
 
@@ -1239,6 +1241,12 @@ function renderAgentList() {
       warningIcons += '<span class="warning-icon fullness-low" title="饥饿">🍗</span>';
     }
 
+    // 保留1位小数
+    const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
+    const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
+    const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
+    const greenPoints = Math.round((agent.greenPoints ?? 0) * 10) / 10;
+
     return `
       <div class="agent-item ${healthPercent < 0.3 ? 'agent-critical' : ''}" data-agent-id="${agent.agentId}">
         <div class="agent-avatar">
@@ -1250,9 +1258,9 @@ function renderAgentList() {
           <div class="agent-status">${agent.status} · ${actionDesc || '空闲'}</div>
           <div class="agent-position">(${agent.position.x}, ${agent.position.y})</div>
           <div class="agent-stats">
-            <span class="stat ${healthPercent < 0.3 ? 'stat-critical' : healthPercent < 0.5 ? 'stat-warning' : ''}" title="健康">❤️ ${agent.health?.current ?? '-'}/${agent.health?.max ?? '-'}</span>
-            <span class="stat" title="绿色积分">🌿 ${(agent.greenPoints ?? 0).toLocaleString()}</span>
-            <span class="stat ${fullnessPercent < 0.2 ? 'stat-critical' : fullnessPercent < 0.4 ? 'stat-warning' : ''}" title="饱腹">🍖 ${agent.fullness ?? '-'}/100</span>
+            <span class="stat ${healthPercent < 0.3 ? 'stat-critical' : healthPercent < 0.5 ? 'stat-warning' : ''}" title="健康">❤️ ${healthCurrent}/${healthMax}</span>
+            <span class="stat" title="绿色积分">🌿 ${greenPoints}</span>
+            <span class="stat ${fullnessPercent < 0.2 ? 'stat-critical' : fullnessPercent < 0.4 ? 'stat-warning' : ''}" title="饱腹">🍖 ${fullnessValue}/100</span>
           </div>
         </div>
       </div>
@@ -1282,9 +1290,9 @@ function showAgentDetails(agentId) {
   document.getElementById('modal-agent-position').textContent = `(${agent.position.x}, ${agent.position.y})`;
   document.getElementById('modal-agent-status').textContent = agent.status;
 
-  // 显示生存属性 - 条形图
-  const healthCurrent = agent.health?.current ?? 0;
-  const healthMax = agent.health?.max ?? 100;
+  // 显示生存属性 - 条形图（保留1位小数）
+  const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
+  const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
   const healthEl = document.getElementById('modal-agent-health');
   const healthBar = document.getElementById('modal-agent-health-bar');
   if (healthEl) healthEl.textContent = `${healthCurrent}/${healthMax}`;
@@ -1294,9 +1302,9 @@ function showAgentDetails(agentId) {
   }
 
   const greenPointsEl = document.getElementById('modal-agent-greenpoints');
-  if (greenPointsEl) greenPointsEl.textContent = (agent.greenPoints ?? 0).toLocaleString();
+  if (greenPointsEl) greenPointsEl.textContent = Math.round((agent.greenPoints ?? 0) * 10) / 10;
 
-  const fullnessValue = agent.fullness ?? 0;
+  const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
   const fullnessEl = document.getElementById('modal-agent-fullness');
   const fullnessBar = document.getElementById('modal-agent-fullness-bar');
   if (fullnessEl) fullnessEl.textContent = `${fullnessValue}/100`;
