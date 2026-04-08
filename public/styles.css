@@ -581,6 +581,50 @@ body {
   gap: 0.15rem;
 }
 
+/* 警告样式 */
+.agent-item.agent-critical {
+  border-left: 3px solid var(--danger-color);
+  background: rgba(239, 71, 111, 0.1);
+}
+
+.warning-icon {
+  display: inline-block;
+  margin-left: 0.25rem;
+  font-size: 0.85rem;
+  animation: pulse 1s infinite;
+}
+
+.warning-icon.health-critical {
+  color: #ff0000;
+}
+
+.warning-icon.health-low {
+  color: #e74c3c;
+}
+
+.warning-icon.fullness-critical {
+  color: #ff6600;
+}
+
+.warning-icon.fullness-low {
+  color: #f39c12;
+}
+
+.stat-critical {
+  color: #ff0000 !important;
+  font-weight: 700;
+}
+
+.stat-warning {
+  color: #ffaa00 !important;
+  font-weight: 600;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
 /* 事件日志 */
 .event-log {
   max-height: 250px;

@@ -1224,20 +1224,35 @@ function renderAgentList() {
     const portraitPath = getCharacterPortrait(agent.agentId);
     const portrait = portraitPath ? imageLoader.getImage(portraitPath) : null;
 
+    // 计算警告图标
+    const healthPercent = agent.health ? (agent.health.current / agent.health.max) : 1;
+    const fullnessPercent = (agent.fullness ?? 100) / 100;
+    let warningIcons = '';
+    if (healthPercent < 0.3) {
+      warningIcons += '<span class="warning-icon health-critical" title="健康危急">❤️</span>';
+    } else if (healthPercent < 0.5) {
+      warningIcons += '<span class="warning-icon health-low" title="健康较低">💔</span>';
+    }
+    if (fullnessPercent < 0.2) {
+      warningIcons += '<span class="warning-icon fullness-critical" title="极度饥饿">🍖</span>';
+    } else if (fullnessPercent < 0.4) {
+      warningIcons += '<span class="warning-icon fullness-low" title="饥饿">🍗</span>';
+    }
+
     return `
-      <div class="agent-item" data-agent-id="${agent.agentId}">
+      <div class="agent-item ${healthPercent < 0.3 ? 'agent-critical' : ''}" data-agent-id="${agent.agentId}">
         <div class="agent-avatar">
           ${portrait ? `<img src="${portraitPath}" alt="${agent.name}" onerror="this.style.display='none';this.parentElement.textContent='🤖'">` : '🤖'}
           <span class="status-dot ${agent.status}"></span>
         </div>
         <div class="agent-info">
-          <div class="agent-name">${agent.name}</div>
+          <div class="agent-name">${agent.name} ${warningIcons}</div>
           <div class="agent-status">${agent.status} · ${actionDesc || '空闲'}</div>
           <div class="agent-position">(${agent.position.x}, ${agent.position.y})</div>
           <div class="agent-stats">
-            <span class="stat" title="健康">❤️ ${agent.health?.current ?? '-'}/${agent.health?.max ?? '-'}</span>
+            <span class="stat ${healthPercent < 0.3 ? 'stat-critical' : healthPercent < 0.5 ? 'stat-warning' : ''}" title="健康">❤️ ${agent.health?.current ?? '-'}/${agent.health?.max ?? '-'}</span>
             <span class="stat" title="绿色积分">🌿 ${(agent.greenPoints ?? 0).toLocaleString()}</span>
-            <span class="stat" title="饱腹">🍖 ${agent.fullness ?? '-'}/100</span>
+            <span class="stat ${fullnessPercent < 0.2 ? 'stat-critical' : fullnessPercent < 0.4 ? 'stat-warning' : ''}" title="饱腹">🍖 ${agent.fullness ?? '-'}/100</span>
           </div>
         </div>
       </div>

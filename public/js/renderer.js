@@ -242,6 +242,55 @@ export function drawAgent(ctx, agent, cellSize, CONFIG) {
       ctx.drawImage(sleepImage, x + 15, y - (sprite ? displaySize[1] : cellSize) / 2 - 10 + oscillation, 20, 20);
     } else {
       // 回退到文字
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('💤', x + 20, y - (sprite ? displaySize[1] : cellSize) / 2 - 5);
+    }
+  }
+
+  // 绘制低健康警告效果
+  const healthPercent = agent.health ? (agent.health.current / agent.health.max) : 1;
+  const fullnessPercent = agent.fullness ? (agent.fullness / 100) : 1;
+
+  if (healthPercent < 0.3) {
+    // 健康<30%：红色闪烁边框
+    const blink = Math.sin(Date.now() / 200) * 0.5 + 0.5; // 0-1闪烁
+    ctx.strokeStyle = `rgba(255, 0, 0, ${blink})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, (sprite ? displaySize[0] : cellSize) / 2 + 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 红色遮罩
+    ctx.fillStyle = `rgba(255, 0, 0, 0.2)`;
+    ctx.beginPath();
+    ctx.arc(x, y, (sprite ? displaySize[0] : cellSize) / 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (healthPercent < 0.5) {
+    // 健康<50%：暗红色边框
+    ctx.strokeStyle = 'rgba(231, 76, 60, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, (sprite ? displaySize[0] : cellSize) / 2 + 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 绘制饥饿图标
+  if (fullnessPercent < 0.4) {
+    const bounce = Math.sin(Date.now() / 300) * 2; // 上下跳动
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('🍖', x - (sprite ? displaySize[0] : cellSize) / 2 - 5, y - (sprite ? displaySize[1] : cellSize) / 2 + bounce);
+  }
+
+  // 绘制极低健康警告图标
+  if (healthPercent < 0.1) {
+    const pulse = Math.sin(Date.now() / 150) * 0.3 + 0.7; // 强烈闪烁
+    ctx.fillStyle = `rgba(255, 0, 0, ${pulse})`;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('❤️', x + (sprite ? displaySize[0] : cellSize) / 2, y - (sprite ? displaySize[1] : cellSize) / 2);
+  }
+}
       ctx.fillStyle = '#6495ed';
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'left';
