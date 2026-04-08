@@ -56,7 +56,8 @@ class Agent {
       TALK: 'TALK',
       THINK: 'THINK',
       WAIT: 'WAIT',
-      SLEEP: 'SLEEP'
+      SLEEP: 'SLEEP',
+      WORK: 'WORK'
     };
   }
 
@@ -114,10 +115,20 @@ class Agent {
     const contextQuery = `当前情况: 我在(${this.position.x}, ${this.position.y})，${this.getTimeContext(worldState.time)}`;
     const relevantMemories = await this.memory.retrieveMemories(contextQuery, 10);
 
-    // 获取世界中的地点
+    // 获取世界中的地点和服务信息
     const locations = [];
+    const workLocations = [];
+    const foodLocations = [];
     for (const obj of worldState.objects.values()) {
       locations.push(`${obj.name}(${obj.position.x},${obj.position.y})`);
+
+      // 分类地点
+      if (obj.services) {
+        const hasWork = obj.services.some(s => s.name === '工作');
+        const hasFood = obj.services.some(s => s.fullness > 0);
+        if (hasWork) workLocations.push(`${obj.name}(${obj.position.x},${obj.position.y})`);
+        if (hasFood) foodLocations.push(`${obj.name}(${obj.position.x},${obj.position.y})`);
+      }
     }
 
     // 构建决策提示
@@ -138,13 +149,25 @@ class Agent {
     }
 
     if (this.greenPoints < 0) {
-      survivalContext += `【警告】积分为负(${this.greenPoints})，需要工作赚钱。\n`;
+      survivalContext += `【警告】积分为负(${this.greenPoints})，急需工作赚钱！可工作地点: ${workLocations.join(', ') || '咖啡馆、便利店'}\n`;
+    } else if (this.greenPoints < 30) {
+      survivalContext += `【提示】积分较少(${this.greenPoints})，可能需要工作。\n`;
     }
 
     // 时间提示
     const hour = worldState.time.getHours();
     if (hour >= 22 || hour < 6) {
       survivalContext += `现在是深夜，你可能会感到困倦。\n`;
+    }
+
+    // 附近建筑提示
+    let nearbyBuildings = '';
+    for (const obj of worldState.objects.values()) {
+      const distance = Math.abs(obj.position.x - this.position.x) + Math.abs(obj.position.y - this.position.y);
+      if (distance <= 3 && obj.services) {
+        const services = obj.services.map(s => `${s.name}(+${s.fullness || s.health || ''})`).join(', ');
+        nearbyBuildings += `- ${obj.name}: ${services}\n`;
+      }
     }
 
     const prompt = `你是${this.name}，${this.config.age}岁。
@@ -167,19 +190,31 @@ ${survivalContext}
 
 世界中的地点: ${locations.join(', ')}
 
+附近建筑服务:
+${nearbyBuildings || '无'}
+
 请决定你接下来要做什么。用JSON格式输出你的决定：
 {
-  "action": "MOVE|TALK|WAIT|SLEEP",
+  "action": "MOVE|TALK|WAIT|SLEEP|WORK",
   "description": "行动描述",
   "targetX": 目标x坐标(如果是移动),
-  "targetY": 目标y坐标(如果是移动)
+  "targetY": 目标y坐标(如果是移动),
+  "hourlyRate": 时薪(如果是工作，可选15-25)
 }
 
-注意:
-- 健康<30或饱腹<20时，优先处理生存需求
-- 深夜(22:00-6:00)可以回家睡觉
-- 饱腹<40时优先前往咖啡馆或便利店
-- 积分为负时优先工作
+行动说明:
+- MOVE: 移动到目标位置
+- TALK: 与附近的人交谈
+- WAIT: 原地等待
+- SLEEP: 回家睡觉(恢复健康和饱腹)
+- WORK: 在工作地点工作赚取积分
+
+决策优先级:
+1. 健康<30或饱腹<20: 优先处理生存需求
+2. 积分为负: 优先去咖啡馆或便利店工作
+3. 深夜(22:00-6:00): 倾向回家睡觉
+4. 饱腹<40: 优先去有食物的地方
+5. 积分<30: 考虑工作赚钱
 
 如果没有特定目标位置，可以随机移动到附近位置。`;
 
@@ -227,6 +262,13 @@ ${survivalContext}
         return {
           type: this.ActionType.SLEEP,
           description: decision.description || '休息',
+          timestamp: new Date()
+        };
+      } else if (actionType === 'WORK') {
+        return {
+          type: this.ActionType.WORK,
+          description: decision.description || '工作',
+          hourlyRate: decision.hourlyRate || 15,
           timestamp: new Date()
         };
       } else {
@@ -289,6 +331,10 @@ ${survivalContext}
         if (action.targetObject) {
           await this.interactWithObject(action.targetObject, action.service);
         }
+        break;
+
+      case this.ActionType.WORK:
+        this.status = 'working';
         break;
     }
 

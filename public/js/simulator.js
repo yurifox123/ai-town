@@ -52,7 +52,8 @@ class WorldSimulator extends EventTarget {
         services: [
           { name: '咖啡', cost: 5, fullness: 5, description: '一杯提神咖啡' },
           { name: '点心', cost: 15, fullness: 15, description: '精致小点心' },
-          { name: '套餐', cost: 30, fullness: 30, description: '丰盛套餐' }
+          { name: '套餐', cost: 30, fullness: 30, description: '丰盛套餐' },
+          { name: '工作', cost: 0, income: 20, description: '在咖啡馆打工' }
         ]
       },
       {
@@ -103,7 +104,8 @@ class WorldSimulator extends EventTarget {
         services: [
           { name: '零食', cost: 10, fullness: 10, description: '方便零食' },
           { name: '便当', cost: 25, fullness: 25, description: '加热便当' },
-          { name: '大餐', cost: 50, fullness: 50, description: '豪华便当' }
+          { name: '大餐', cost: 50, fullness: 50, description: '豪华便当' },
+          { name: '工作', cost: 0, income: 15, description: '在便利店打工' }
         ]
       },
       {
@@ -289,6 +291,28 @@ class WorldSimulator extends EventTarget {
     const isWorking = agent.currentAction && agent.currentAction.type === 'WORK';
     const isSleeping = agent.status === 'sleeping';
     agent.updateSurvivalAttributes(gameMinutes, isMoving, isWorking, isSleeping);
+
+    // 0.1 处理工作收入
+    if (isWorking) {
+      const hourlyRate = agent.currentAction.hourlyRate || 15; // 默认15积分/小时
+      const income = (gameMinutes / 60) * hourlyRate;
+      agent.earnPoints(income);
+    }
+
+    // 0.2 处理睡觉状态恢复
+    if (isSleeping) {
+      const hour = this.gameTime.getHours();
+      // 早上6点自动醒来
+      if (hour >= 6 && hour < 22) {
+        agent.status = 'idle';
+        agent.currentAction = null;
+        await agent.memory.addMemory(
+          '睡醒了，感觉精神饱满',
+          agent.MemoryType.OBSERVATION,
+          5
+        );
+      }
+    }
 
     // 1. 检查是否需要做新决策
     // 条件：到达目标、走了50格、或没有移动目标
