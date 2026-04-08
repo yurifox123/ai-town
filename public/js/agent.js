@@ -38,6 +38,7 @@ class Agent {
     };
     this.greenPoints = config.greenPoints || 10; // 绿色积分，初始10，范围-10000~10000000
     this.fullness = config.fullness || 80;       // 饱腹值 (0-100)
+    this.lastSurvivalUpdate = Date.now();        // 上次更新生存属性的时间戳
 
     // 记忆类型
     this.MemoryType = {
@@ -121,11 +122,42 @@ class Agent {
 
     // 构建决策提示
     const memoryContext = relevantMemories.map(r => r.memory.content).join('\n');
+
+    // 生存属性上下文
+    let survivalContext = '';
+    if (this.health.current < 30) {
+      survivalContext += `【紧急】健康值极低(${this.health.current}/${this.health.max})，你需要立即休息恢复！\n`;
+    } else if (this.health.current < 50) {
+      survivalContext += `【警告】健康值较低(${this.health.current}/${this.health.max})，建议休息。\n`;
+    }
+
+    if (this.fullness < 20) {
+      survivalContext += `【紧急】极度饥饿(${this.fullness}/100)，你必须立即寻找食物！优先前往咖啡馆或便利店。\n`;
+    } else if (this.fullness < 40) {
+      survivalContext += `【警告】很饿(${this.fullness}/100)，建议找点东西吃。\n`;
+    }
+
+    if (this.greenPoints < 0) {
+      survivalContext += `【警告】积分为负(${this.greenPoints})，需要工作赚钱。\n`;
+    }
+
+    // 时间提示
+    const hour = worldState.time.getHours();
+    if (hour >= 22 || hour < 6) {
+      survivalContext += `现在是深夜，你可能会感到困倦。\n`;
+    }
+
     const prompt = `你是${this.name}，${this.config.age}岁。
 性格: ${this.config.traits}
 
 你的记忆:
 ${memoryContext}
+
+当前生存状态:
+- 健康: ${this.health.current}/${this.health.max}
+- 饱腹: ${this.fullness}/100
+- 积分: ${this.greenPoints}
+${survivalContext}
 
 当前情况:
 - 位置: (${this.position.x}, ${this.position.y})
@@ -142,6 +174,12 @@ ${memoryContext}
   "targetX": 目标x坐标(如果是移动),
   "targetY": 目标y坐标(如果是移动)
 }
+
+注意:
+- 健康<30或饱腹<20时，优先处理生存需求
+- 深夜(22:00-6:00)可以回家睡觉
+- 饱腹<40时优先前往咖啡馆或便利店
+- 积分为负时优先工作
 
 如果没有特定目标位置，可以随机移动到附近位置。`;
 
@@ -245,6 +283,12 @@ ${memoryContext}
 
       case this.ActionType.SLEEP:
         this.status = 'sleeping';
+        break;
+
+      case this.ActionType.INTERACT:
+        if (action.targetObject) {
+          await this.interactWithObject(action.targetObject, action.service);
+        }
         break;
     }
 
@@ -561,10 +605,159 @@ ${memoryContext}
     if (data.fullness !== undefined) {
       agent.fullness = data.fullness;
     }
+    if (data.lastSurvivalUpdate) {
+      agent.lastSurvivalUpdate = data.lastSurvivalUpdate;
+    }
     if (data.memory) {
       agent.memory.importData(data.memory);
     }
     return agent;
+  }
+
+  /**
+   * 更新生存属性（随时间自动消耗）
+   * @param {number} gameMinutes - 游戏时间经过的分钟数
+   * @param {boolean} isMoving - 是否在移动中
+   * @param {boolean} isWorking - 是否在工作
+   * @param {boolean} isSleeping - 是否在睡觉
+   */
+  updateSurvivalAttributes(gameMinutes, isMoving = false, isWorking = false, isSleeping = false) {
+    const now = Date.now();
+    const elapsedHours = gameMinutes / 60;
+
+    // 饱腹值消耗
+    let fullnessConsumed = elapsedHours * 3; // 每小时消耗3点
+
+    if (isMoving) {
+      fullnessConsumed += elapsedHours * 2; // 移动额外消耗
+    }
+    if (isWorking) {
+      fullnessConsumed += elapsedHours * 2; // 工作额外消耗
+    }
+    if (isSleeping) {
+      fullnessConsumed = elapsedHours * 1; // 睡觉消耗减半
+    }
+
+    this.fullness = Math.max(0, this.fullness - fullnessConsumed);
+
+    // 健康值变化
+    if (this.fullness === 0) {
+      // 极度饥饿，健康快速下降
+      const healthLost = elapsedHours * 5;
+      this.health.current = Math.max(0, this.health.current - healthLost);
+    } else if (this.fullness < 20) {
+      // 饥饿状态，健康缓慢下降
+      const healthLost = elapsedHours * 2;
+      this.health.current = Math.max(0, this.health.current - healthLost);
+    } else if (isSleeping) {
+      // 睡觉恢复健康
+      const healthGain = elapsedHours * 10;
+      this.health.current = Math.min(this.health.max, this.health.current + healthGain);
+    } else if (this.fullness >= 80 && !isMoving && !isWorking) {
+      // 饱腹且休息时，健康缓慢恢复
+      const healthGain = elapsedHours * 1;
+      this.health.current = Math.min(this.health.max, this.health.current + healthGain);
+    }
+
+    // 健康=0时进入昏迷状态
+    if (this.health.current === 0) {
+      this.status = 'unconscious';
+    }
+
+    this.lastSurvivalUpdate = now;
+  }
+
+  /**
+   * 恢复饱腹值
+   * @param {number} amount - 恢复量
+   */
+  eat(amount) {
+    this.fullness = Math.min(100, this.fullness + amount);
+  }
+
+  /**
+   * 恢复健康值
+   * @param {number} amount - 恢复量
+   */
+  heal(amount) {
+    this.health.current = Math.min(this.health.max, this.health.current + amount);
+  }
+
+  /**
+   * 与建筑/物体交互
+   * @param {Object} object - 建筑/物体
+   * @param {Object} service - 服务项目
+   */
+  async interactWithObject(object, service) {
+    if (!service) {
+      // 如果没有指定服务，使用第一个可用服务
+      service = object.services?.[0];
+    }
+
+    if (!service) {
+      console.log(`[${this.name}] ${object.name} 没有可用的服务`);
+      return;
+    }
+
+    // 检查积分
+    if (service.cost > 0 && this.greenPoints < service.cost) {
+      console.log(`[${this.name}] 积分不足，无法使用 ${service.name}`);
+      await this.memory.addMemory(
+        `想去${object.name}消费但积分不够`,
+        this.MemoryType.OBSERVATION,
+        5
+      );
+      return;
+    }
+
+    // 扣除积分
+    if (service.cost > 0) {
+      this.spendPoints(service.cost);
+    }
+
+    // 应用效果
+    if (service.fullness) {
+      this.eat(service.fullness);
+    }
+    if (service.health) {
+      this.heal(service.health);
+    }
+
+    // 记录到记忆
+    const actionDesc = service.description || `${service.name}(${object.name})`;
+    await this.memory.addMemory(
+      `在${object.name}${actionDesc}，消耗${service.cost}积分`,
+      this.MemoryType.ACTION,
+      6
+    );
+
+    console.log(`[${this.name}] 在${object.name}使用了${service.name}，剩余积分:${this.greenPoints}，饱腹:${this.fullness}，健康:${this.health.current}`);
+
+    // 如果是睡觉，改变状态
+    if (service.name === '睡觉') {
+      this.status = 'sleeping';
+    }
+  }
+
+  /**
+   * 消耗积分
+   * @param {number} amount - 消耗量
+   * @returns {boolean} - 是否成功
+   */
+  spendPoints(amount) {
+    if (this.greenPoints >= amount) {
+      this.greenPoints -= amount;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 增加积分
+   * @param {number} amount - 增加量
+   */
+  earnPoints(amount) {
+    this.greenPoints += amount;
   }
 }
 

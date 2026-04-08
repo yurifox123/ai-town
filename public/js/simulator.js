@@ -48,7 +48,12 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 15, y: 5, area: '咖啡馆' },
         interactable: true,
-        description: '一个温馨的咖啡馆，提供各种咖啡和点心'
+        description: '一个温馨的咖啡馆，提供各种咖啡和点心',
+        services: [
+          { name: '咖啡', cost: 5, fullness: 5, description: '一杯提神咖啡' },
+          { name: '点心', cost: 15, fullness: 15, description: '精致小点心' },
+          { name: '套餐', cost: 30, fullness: 30, description: '丰盛套餐' }
+        ]
       },
       {
         id: 'park',
@@ -56,7 +61,11 @@ class WorldSimulator extends EventTarget {
         type: 'area',
         position: { x: 33, y: 18, area: '公园' },
         interactable: true,
-        description: '绿树成荫的公园，适合散步和放松'
+        description: '绿树成荫的公园，适合散步和放松',
+        services: [
+          { name: '散步', cost: 0, health: 2, fullness: -2, description: '悠闲散步' },
+          { name: '锻炼', cost: 0, health: 5, fullness: -5, description: '户外锻炼' }
+        ]
       },
       {
         id: 'home1',
@@ -64,7 +73,12 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 5, y: 5, area: '家' },
         interactable: true,
-        description: '小明的温馨小屋'
+        description: '小明的温馨小屋',
+        services: [
+          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
+          { name: '休息', cost: 0, health: 3, description: '在家休息' }
+        ],
+        owner: 'xiaoming'
       },
       {
         id: 'home2',
@@ -72,7 +86,12 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 45, y: 35, area: '家' },
         interactable: true,
-        description: '小红的公寓'
+        description: '小红的公寓',
+        services: [
+          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
+          { name: '休息', cost: 0, health: 3, description: '在家休息' }
+        ],
+        owner: 'xiaohong'
       },
       {
         id: 'shop',
@@ -80,7 +99,12 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 22, y: 15, area: '商店' },
         interactable: true,
-        description: '24小时便利店'
+        description: '24小时便利店',
+        services: [
+          { name: '零食', cost: 10, fullness: 10, description: '方便零食' },
+          { name: '便当', cost: 25, fullness: 25, description: '加热便当' },
+          { name: '大餐', cost: 50, fullness: 50, description: '豪华便当' }
+        ]
       },
       {
         id: 'library',
@@ -88,7 +112,10 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 15, y: 22, area: '图书馆' },
         interactable: true,
-        description: '安静的阅读场所'
+        description: '安静的阅读场所',
+        services: [
+          { name: '阅读', cost: 0, description: '安静阅读' }
+        ]
       },
       {
         id: 'home3',
@@ -96,7 +123,12 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 5, y: 35, area: '家' },
         interactable: true,
-        description: '小米的美食小屋，总是飘着诱人的香气'
+        description: '小米的美食小屋，总是飘着诱人的香气',
+        services: [
+          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
+          { name: '休息', cost: 0, health: 3, description: '在家休息' }
+        ],
+        owner: 'xiaomi'
       },
       {
         id: 'home4',
@@ -104,7 +136,12 @@ class WorldSimulator extends EventTarget {
         type: 'building',
         position: { x: 45, y: 5, area: '家' },
         interactable: true,
-        description: '小东的健身之家，充满运动活力'
+        description: '小东的健身之家，充满运动活力',
+        services: [
+          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
+          { name: '锻炼', cost: 0, health: 8, fullness: -3, description: '在家锻炼' }
+        ],
+        owner: 'xiaodong'
       }
     ];
 
@@ -245,9 +282,17 @@ class WorldSimulator extends EventTarget {
    * 更新单个Agent
    */
   async updateAgent(agent) {
+    // 0. 更新生存属性
+    const realSeconds = this.tickIntervalMs / 1000;
+    const gameMinutes = realSeconds * this.timeScale;
+    const isMoving = agent.isMoving && agent.isMoving();
+    const isWorking = agent.currentAction && agent.currentAction.type === 'WORK';
+    const isSleeping = agent.status === 'sleeping';
+    agent.updateSurvivalAttributes(gameMinutes, isMoving, isWorking, isSleeping);
+
     // 1. 检查是否需要做新决策
     // 条件：到达目标、走了50格、或没有移动目标
-    if (agent.isMoving() && !agent.shouldMakeNewDecision()) {
+    if (agent.isMoving && agent.isMoving() && !agent.shouldMakeNewDecision()) {
       // 还在移动中，不做新决策（移动由 Agent 自己的定时器处理）
       return;
     }
