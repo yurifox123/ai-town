@@ -493,44 +493,93 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
 
   switch (terrain) {
     case 'wall':
-      // 绘制围墙 - 大理石材质
-      // 底色 - 乳白色
-      ctx.fillStyle = '#f5f5f0';
+      // 绘制围墙 - 大理石材质（带立体感）
+      const wallHeight = 8; // 围墙高度（用于立体效果）
+
+      // 1. 绘制围墙顶部（立体顶面）
+      ctx.fillStyle = '#e8e8e0'; // 顶部颜色稍亮
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + cellSize, py);
+      ctx.lineTo(px + cellSize - 4, py - wallHeight);
+      ctx.lineTo(px - 4, py - wallHeight);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#c8c8c0';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // 2. 绘制围墙正面（主体）
+      // 底色 - 米白色大理石
+      ctx.fillStyle = '#f0f0e8';
       ctx.fillRect(px, py, cellSize, cellSize);
 
-      // 大理石纹理 - 浅灰色不规则纹理
-      ctx.fillStyle = '#e8e8e3';
+      // 3. 大理石纹理 - 浅灰色云状纹理
+      ctx.fillStyle = 'rgba(180, 180, 170, 0.3)';
       ctx.beginPath();
-      ctx.moveTo(px, py + cellSize * 0.3);
-      ctx.quadraticCurveTo(px + cellSize * 0.5, py + cellSize * 0.1, px + cellSize, py + cellSize * 0.4);
-      ctx.lineTo(px + cellSize, py + cellSize * 0.6);
-      ctx.quadraticCurveTo(px + cellSize * 0.5, py + cellSize * 0.3, px, py + cellSize * 0.5);
+      ctx.moveTo(px, py + cellSize * 0.4);
+      ctx.bezierCurveTo(
+        px + cellSize * 0.3, py + cellSize * 0.2,
+        px + cellSize * 0.7, py + cellSize * 0.3,
+        px + cellSize, py + cellSize * 0.5
+      );
+      ctx.lineTo(px + cellSize, py + cellSize * 0.7);
+      ctx.bezierCurveTo(
+        px + cellSize * 0.7, py + cellSize * 0.5,
+        px + cellSize * 0.3, py + cellSize * 0.6,
+        px, py + cellSize * 0.6
+      );
       ctx.fill();
 
-      // 大理石纹理 - 深灰色纹理线条
-      ctx.strokeStyle = '#c0c0b8';
-      ctx.lineWidth = 1;
+      // 4. 大理石纹理线条 - 深灰色
+      ctx.strokeStyle = 'rgba(150, 150, 140, 0.4)';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(px + cellSize * 0.2, py);
-      ctx.quadraticCurveTo(px + cellSize * 0.4, py + cellSize * 0.5, px + cellSize * 0.3, py + cellSize);
+      ctx.moveTo(px + cellSize * 0.1, py);
+      ctx.quadraticCurveTo(
+        px + cellSize * 0.3, py + cellSize * 0.4,
+        px + cellSize * 0.2, py + cellSize
+      );
       ctx.stroke();
 
       // 纹理线条2
-      ctx.strokeStyle = '#d0d0c8';
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = 'rgba(160, 160, 150, 0.35)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(px, py + cellSize * 0.7);
-      ctx.quadraticCurveTo(px + cellSize * 0.6, py + cellSize * 0.5, px + cellSize, py + cellSize * 0.8);
+      ctx.moveTo(px, py + cellSize * 0.75);
+      ctx.quadraticCurveTo(
+        px + cellSize * 0.5, py + cellSize * 0.55,
+        px + cellSize, py + cellSize * 0.8
+      );
       ctx.stroke();
 
-      // 高光效果 - 增加大理石光泽
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.fillRect(px, py, cellSize, cellSize * 0.3);
+      // 5. 立体阴影 - 右侧阴影
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+      ctx.fillRect(px + cellSize - 3, py, 3, cellSize);
 
-      // 边框
-      ctx.strokeStyle = '#d4d4ce';
-      ctx.lineWidth = 1;
+      // 6. 底部阴影（增加厚重感）
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.fillRect(px, py + cellSize - 2, cellSize, 2);
+
+      // 7. 左侧高光（增加立体感）
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.fillRect(px, py, 2, cellSize);
+
+      // 8. 边框线（分隔每块大理石）
+      ctx.strokeStyle = '#d0d0c8';
+      ctx.lineWidth = 0.5;
       ctx.strokeRect(px, py, cellSize, cellSize);
+
+      // 9. 表面细微纹理（增加真实感）
+      ctx.fillStyle = 'rgba(200, 200, 190, 0.2)';
+      for (let i = 0; i < 3; i++) {
+        const dotX = px + Math.random() * cellSize * 0.8 + cellSize * 0.1;
+        const dotY = py + Math.random() * cellSize * 0.8 + cellSize * 0.1;
+        const dotSize = Math.random() * 2 + 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, dotSize, 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
 
     case 'river':
