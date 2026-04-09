@@ -229,23 +229,48 @@ async function main() {
     process.exit(1);
   }
 
-  // 创建服务器
-  const server = http.createServer(handleRequest);
+  // 尝试启动服务器，如果端口被保留则自动尝试其他端口
+  let currentPort = Number(PORT);
+  let started = false;
 
-  server.listen(PORT, () => {
-    console.log('\n🌐 AI生态小镇服务器已启动');
-    console.log(`   访问地址: http://localhost:${PORT}`);
-    console.log(`   LLM模型: ${llmConfig.model}`);
-    console.log('');
-  });
+  while (!started) {
+    try {
+      await new Promise((resolve, reject) => {
+        const testServer = http.createServer(handleRequest);
 
-  // 优雅关闭
-  process.on('SIGINT', () => {
-    console.log('\n👋 正在关闭服务器...');
-    server.close(() => {
-      process.exit(0);
-    });
-  });
+        testServer.listen(currentPort, () => {
+          console.log('\n🌐 AI生态小镇服务器已启动');
+          console.log(`   访问地址: http://localhost:${currentPort}`);
+          console.log(`   LLM模型: ${llmConfig.model}`);
+          console.log('');
+          started = true;
+
+          // 优雅关闭
+          process.on('SIGINT', () => {
+            console.log('\n👋 正在关闭服务器...');
+            testServer.close(() => {
+              process.exit(0);
+            });
+          });
+
+          resolve(true);
+        });
+
+        testServer.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
+            console.log(`⚠️ 端口 ${currentPort} 不可用，尝试下一个端口...`);
+            testServer.close();
+            currentPort++;
+            reject(err);
+          } else {
+            reject(err);
+          }
+        });
+      });
+    } catch (err) {
+      // 继续尝试下一个端口
+    }
+  }
 }
 
 main().catch(console.error);
