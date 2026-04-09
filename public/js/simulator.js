@@ -150,6 +150,148 @@ class WorldSimulator extends EventTarget {
     for (const obj of locations) {
       this.objects.set(obj.id, obj);
     }
+
+    // 初始化地形系统（围墙、河流、大门）
+    this.initializeTerrain();
+  }
+
+  /**
+   * 初始化地形（围墙、河流、大门）
+   * 地形有体积，NPC无法穿过（大门除外）
+   */
+  initializeTerrain() {
+    this.terrain = new Map(); // 存储地形格子: key="x,y", value=terrainType
+    this.gates = []; // 大门位置列表，用于渲染和快速查找
+
+    const width = this.width;
+    const height = this.height;
+
+    // 1. 创建围墙（地图四周）
+    // 留出两个大门位置：(25,0) 北边大门, (25,49) 南边大门
+    for (let x = 0; x < width; x++) {
+      // 上边围墙（除了大门位置）
+      if (x !== 25) {
+        this.terrain.set(`${x},0`, 'wall');
+      } else {
+        this.terrain.set(`${x},0`, 'gate');
+        this.gates.push({ x, y: 0, direction: 'north' });
+      }
+
+      // 下边围墙（除了大门位置）
+      if (x !== 25) {
+        this.terrain.set(`${x},${height - 1}`, 'wall');
+      } else {
+        this.terrain.set(`${x},${height - 1}`, 'gate');
+        this.gates.push({ x, y: height - 1, direction: 'south' });
+      }
+    }
+
+    for (let y = 1; y < height - 1; y++) {
+      // 左边围墙
+      this.terrain.set(`0,${y}`, 'wall');
+      // 右边围墙
+      this.terrain.set(`${width - 1},${y}`, 'wall');
+    }
+
+    // 2. 创建河流（穿过小镇，从西到东，蜿蜒曲折）
+    // 河流使用曲线，让地图更有层次感
+    const riverYBase = Math.floor(height / 2); // 河流中心线
+
+    for (let x = 1; x < width - 1; x++) {
+      // 使用正弦函数创建蜿蜒河流
+      const curve = Math.sin(x * 0.15) * 3;
+      const riverY = Math.floor(riverYBase + curve);
+
+      // 河流宽度2-3格
+      this.terrain.set(`${x},${riverY}`, 'river');
+      this.terrain.set(`${x},${riverY + 1}`, 'river');
+
+      // 河流弯曲处加宽
+      if (Math.abs(curve) > 2) {
+        this.terrain.set(`${x},${riverY - 1}`, 'river');
+      }
+    }
+
+    // 3. 添加桥梁（穿过河流的可通行路径）
+    // 桥梁位置：(12, riverY) 和 (37, riverY)
+    const bridgeX1 = 12;
+    const bridgeX2 = 37;
+
+    for (let x of [bridgeX1, bridgeX2]) {
+      const curve = Math.sin(x * 0.15) * 3;
+      const riverY = Math.floor(riverYBase + curve);
+
+      // 桥梁替换河流地形
+      this.terrain.set(`${x},${riverY}`, 'bridge');
+      this.terrain.set(`${x},${riverY + 1}`, 'bridge');
+      if (this.terrain.get(`${x},${riverY - 1}`) === 'river') {
+        this.terrain.set(`${x},${riverY - 1}`, 'bridge');
+      }
+    }
+
+    // 4. 添加一些装饰性围墙（内部小区域）
+    // 在公园周围添加矮墙
+    const parkX = 33, parkY = 18;
+    for (let x = parkX - 3; x <= parkX + 3; x++) {
+      this.terrain.set(`${x},${parkY - 3}`, 'fence');
+      this.terrain.set(`${x},${parkY + 3}`, 'fence');
+    }
+    for (let y = parkY - 2; y <= parkY + 2; y++) {
+      this.terrain.set(`${parkX - 3},${y}`, 'fence');
+      this.terrain.set(`${parkX + 3},${y}`, 'fence');
+    }
+    // 公园入口
+    this.terrain.set(`${parkX},${parkY + 3}`, 'gate');
+    this.gates.push({ x: parkX, y: parkY + 3, direction: 'south' });
+  }
+
+  /**
+   * 检查位置是否可通行
+   * @param {number} x - x坐标
+   * @param {number} y - y坐标
+   * @returns {boolean} - 是否可通行
+   */
+  isPassable(x, y) {
+    // 边界检查
+    if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+      return false;
+    }
+
+    const terrain = this.terrain.get(`${x},${y}`);
+
+    // 可通行的地形：undefined(空地), 'gate'(大门), 'bridge'(桥梁)
+    // 不可通行的地形：'wall'(围墙), 'river'(河流), 'fence'(栅栏)
+    if (terrain === 'wall' || terrain === 'river' || terrain === 'fence') {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 获取指定位置的地形类型
+   * @param {number} x - x坐标
+   * @param {number} y - y坐标
+   * @returns {string|null} - 地形类型或null
+   */
+  getTerrainAt(x, y) {
+    return this.terrain.get(`${x},${y}`) || null;
+  }
+
+  /**
+   * 获取所有地形数据（用于渲染）
+   * @returns {Map} - 地形Map
+   */
+  getTerrainMap() {
+    return this.terrain;
+  }
+
+  /**
+   * 获取所有大门位置
+   * @returns {Array} - 大门位置数组
+   */
+  getGates() {
+    return this.gates;
   }
 
   /**
@@ -161,11 +303,31 @@ class WorldSimulator extends EventTarget {
     if (position) {
       agent.setPosition(position);
     } else {
-      // 随机位置
-      agent.setPosition({
-        x: Math.floor(Math.random() * this.width),
-        y: Math.floor(Math.random() * this.height)
-      });
+      // 随机位置，确保在可通行区域
+      let validPosition = false;
+      let attempts = 0;
+      let newPos = { x: 0, y: 0 };
+
+      while (!validPosition && attempts < 100) {
+        newPos = {
+          x: Math.floor(Math.random() * this.width),
+          y: Math.floor(Math.random() * this.height)
+        };
+        validPosition = this.isPassable(newPos.x, newPos.y);
+        attempts++;
+      }
+
+      if (!validPosition) {
+        // 如果找不到随机位置，使用家门位置
+        const home = this.objects.values().find(obj => obj.owner === config.id);
+        if (home) {
+          newPos = { ...home.position };
+        } else {
+          newPos = { x: 25, y: 25 }; // 默认中心位置
+        }
+      }
+
+      agent.setPosition(newPos);
     }
 
     await agent.initialize();
@@ -535,7 +697,12 @@ class WorldSimulator extends EventTarget {
       events: this.events.slice(-20),
       tickCount: this.tickCount,
       isRunning: this.isRunning,
-      townHealth: this.townHealth
+      townHealth: this.townHealth,
+      // 地形相关方法
+      isPassable: (x, y) => this.isPassable(x, y),
+      getTerrainAt: (x, y) => this.getTerrainAt(x, y),
+      getTerrainMap: () => this.getTerrainMap(),
+      getGates: () => this.getGates()
     };
   }
 

@@ -50,6 +50,11 @@ export function drawMap(ctx, state, CONFIG) {
   // 获取世界状态
   const worldState = state.world.getWorldState();
 
+  // 绘制地形（围墙、河流、大门、桥梁）
+  if (worldState.getTerrainMap) {
+    drawTerrain(ctx, worldState.getTerrainMap(), cellSize, width, height);
+  }
+
   // 绘制物体
   for (const obj of worldState.objects.values()) {
     drawObject(ctx, obj, cellSize, CONFIG);
@@ -321,14 +326,100 @@ export function checkObjectHit(obj, mouseX, mouseY, cellSize, CONFIG) {
   const displaySize = getBuildingDisplaySize(obj.id);
   const drawWidth = displaySize[0] * CONFIG.SPRITE_SCALE;
   const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
-  
+
   const ox = obj.position.x * cellSize;
   const oy = obj.position.y * cellSize;
-  
+
   // 矩形碰撞检测（扩大 1.5 倍便于点击）
   const margin = 1.5;
-  return mouseX >= ox - drawWidth / 2 * margin && 
-         mouseX <= ox + drawWidth / 2 * margin && 
-         mouseY >= oy - drawHeight / 2 * margin && 
+  return mouseX >= ox - drawWidth / 2 * margin &&
+         mouseX <= ox + drawWidth / 2 * margin &&
+         mouseY >= oy - drawHeight / 2 * margin &&
          mouseY <= oy + drawHeight / 2 * margin;
+}
+
+/**
+ * 绘制地形（围墙、河流、大门、桥梁、栅栏）
+ * @param {CanvasRenderingContext2D} ctx - Canvas上下文
+ * @param {Map} terrainMap - 地形Map
+ * @param {number} cellSize - 格子大小
+ * @param {number} width - 地图宽度
+ * @param {number} height - 地图高度
+ */
+export function drawTerrain(ctx, terrainMap, cellSize, width, height) {
+  if (!terrainMap) return;
+
+  for (const [key, terrain] of terrainMap) {
+    const [x, y] = key.split(',').map(Number);
+    const px = x * cellSize;
+    const py = y * cellSize;
+
+    switch (terrain) {
+      case 'wall':
+        // 绘制围墙 - 深灰色砖墙
+        ctx.fillStyle = '#4a4a4a';
+        ctx.fillRect(px, py, cellSize, cellSize);
+        // 砖块纹理
+        ctx.fillStyle = '#5a5a5a';
+        ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, py, cellSize, cellSize);
+        break;
+
+      case 'river':
+        // 绘制河流 - 蓝色水面
+        ctx.fillStyle = '#3498db';
+        ctx.fillRect(px, py, cellSize, cellSize);
+        // 水波纹效果
+        ctx.fillStyle = '#5dade2';
+        ctx.fillRect(px + 2, py + 4, cellSize - 4, cellSize - 8);
+        break;
+
+      case 'gate':
+        // 绘制大门 - 棕色木门，可通行
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(px, py, cellSize, cellSize);
+        // 门上的装饰
+        ctx.fillStyle = '#a0522d';
+        ctx.fillRect(px + 3, py + 3, cellSize - 6, cellSize - 6);
+        // 门把手
+        ctx.fillStyle = '#ffd700';
+        ctx.beginPath();
+        ctx.arc(px + cellSize - 6, py + cellSize / 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'bridge':
+        // 绘制桥梁 - 棕色木板
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(px, py, cellSize, cellSize);
+        // 木板纹理
+        ctx.fillStyle = '#a0522d';
+        ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
+        // 桥栏杆
+        ctx.strokeStyle = '#654321';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(px, py + 4);
+        ctx.lineTo(px + cellSize, py + 4);
+        ctx.moveTo(px, py + cellSize - 4);
+        ctx.lineTo(px + cellSize, py + cellSize - 4);
+        ctx.stroke();
+        break;
+
+      case 'fence':
+        // 绘制栅栏 - 浅棕色木栅栏
+        ctx.fillStyle = '#d2b48c';
+        ctx.fillRect(px, py, cellSize, cellSize);
+        // 栅栏柱
+        ctx.fillStyle = '#8b7355';
+        ctx.fillRect(px + 2, py + 2, 4, cellSize - 4);
+        ctx.fillRect(px + cellSize - 6, py + 2, 4, cellSize - 4);
+        // 横栏
+        ctx.fillRect(px + 2, py + 6, cellSize - 4, 3);
+        ctx.fillRect(px + 2, py + cellSize - 9, cellSize - 4, 3);
+        break;
+    }
+  }
 }

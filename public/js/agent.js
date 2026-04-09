@@ -64,6 +64,9 @@ class Agent {
       WORK: 'WORK',
       BUY: 'BUY'
     };
+
+    // 世界引用（用于地形碰撞检测）
+    this.world = null;
   }
 
   /**
@@ -347,6 +350,9 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    * 执行行动
    */
   async executeAction(action, world) {
+    // 保存world引用（用于碰撞检测）
+    this.world = world;
+
     // 确保 action 是对象格式
     if (typeof action === 'string') {
       this.currentAction = { description: action, timestamp: new Date() };
@@ -578,6 +584,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
   /**
    * 逐格移动一步
    * 如果还有移动目标，向目标移动一格
+   * 会检查地形碰撞（不能穿过围墙、河流、栅栏）
    * @returns {boolean} 是否还有剩余移动
    */
   moveOneStep() {
@@ -611,6 +618,44 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     } else if (dy !== 0) {
       // 只垂直移动
       moveY = dy > 0 ? 1 : -1;
+    }
+
+    // 检查目标位置是否可通行
+    const nextX = this.position.x + moveX;
+    const nextY = this.position.y + moveY;
+
+    if (this.world && !this.world.isPassable(nextX, nextY)) {
+      // 目标位置不可通行（围墙、河流、栅栏）
+      const terrain = this.world.getTerrainAt(nextX, nextY);
+      console.log(`[${this.name}] 移动被阻挡，遇到${terrain || '障碍'}，尝试绕行...`);
+
+      // 尝试另一个方向
+      let altMoveX = 0;
+      let altMoveY = 0;
+
+      if (moveX !== 0) {
+        // 水平移动被阻挡，尝试垂直移动
+        altMoveY = dy > 0 ? 1 : (dy < 0 ? -1 : (Math.random() < 0.5 ? 1 : -1));
+      } else {
+        // 垂直移动被阻挡，尝试水平移动
+        altMoveX = dx > 0 ? 1 : (dx < 0 ? -1 : (Math.random() < 0.5 ? 1 : -1));
+      }
+
+      const altX = this.position.x + altMoveX;
+      const altY = this.position.y + altMoveY;
+
+      if (this.world.isPassable(altX, altY)) {
+        moveX = altMoveX;
+        moveY = altMoveY;
+        console.log(`[${this.name}] 选择绕行方向: (${moveX},${moveY})`);
+      } else {
+        // 两个方向都不行，停止移动并重新决策
+        console.log(`[${this.name}] 无法通行，需要重新规划路线`);
+        this.moveTarget = null;
+        this.status = 'idle';
+        this.movesSinceLastDecision = this.decisionInterval; // 强制触发新决策
+        return false;
+      }
     }
 
     // 执行移动
