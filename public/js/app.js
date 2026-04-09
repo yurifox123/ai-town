@@ -493,13 +493,42 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
 
   switch (terrain) {
     case 'wall':
-      // 绘制围墙 - 深灰色砖墙
-      ctx.fillStyle = '#4a4a4a';
+      // 绘制围墙 - 大理石材质
+      // 底色 - 乳白色
+      ctx.fillStyle = '#f5f5f0';
       ctx.fillRect(px, py, cellSize, cellSize);
-      // 砖块纹理
-      ctx.fillStyle = '#5a5a5a';
-      ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
-      ctx.strokeStyle = '#333';
+
+      // 大理石纹理 - 浅灰色不规则纹理
+      ctx.fillStyle = '#e8e8e3';
+      ctx.beginPath();
+      ctx.moveTo(px, py + cellSize * 0.3);
+      ctx.quadraticCurveTo(px + cellSize * 0.5, py + cellSize * 0.1, px + cellSize, py + cellSize * 0.4);
+      ctx.lineTo(px + cellSize, py + cellSize * 0.6);
+      ctx.quadraticCurveTo(px + cellSize * 0.5, py + cellSize * 0.3, px, py + cellSize * 0.5);
+      ctx.fill();
+
+      // 大理石纹理 - 深灰色纹理线条
+      ctx.strokeStyle = '#c0c0b8';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + cellSize * 0.2, py);
+      ctx.quadraticCurveTo(px + cellSize * 0.4, py + cellSize * 0.5, px + cellSize * 0.3, py + cellSize);
+      ctx.stroke();
+
+      // 纹理线条2
+      ctx.strokeStyle = '#d0d0c8';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(px, py + cellSize * 0.7);
+      ctx.quadraticCurveTo(px + cellSize * 0.6, py + cellSize * 0.5, px + cellSize, py + cellSize * 0.8);
+      ctx.stroke();
+
+      // 高光效果 - 增加大理石光泽
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.fillRect(px, py, cellSize, cellSize * 0.3);
+
+      // 边框
+      ctx.strokeStyle = '#d4d4ce';
       ctx.lineWidth = 1;
       ctx.strokeRect(px, py, cellSize, cellSize);
       break;
