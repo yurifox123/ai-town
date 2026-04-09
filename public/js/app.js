@@ -558,6 +558,7 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
       ctx.fillRect(px + 2, py + cellSize - 9, cellSize - 4, 3);
       break;
   }
+}
 
 function drawEditorBuilding(ctx, building, cellSize) {
   const x = building.x * cellSize;
