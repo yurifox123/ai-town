@@ -427,10 +427,15 @@ function drawMap() {
     // 绘制地形（围墙、河流、大门、桥梁）
     if (worldState.getTerrainMap) {
       const terrainMap = worldState.getTerrainMap();
-      for (const [key, terrain] of terrainMap) {
-        const [tx, ty] = key.split(',').map(Number);
-        drawTerrainTile(ctx, tx, ty, terrain, cellSize);
+      console.log('地形数量:', terrainMap.size);
+      if (terrainMap.size > 0) {
+        for (const [key, terrain] of terrainMap) {
+          const [tx, ty] = key.split(',').map(Number);
+          drawTerrainTile(ctx, tx, ty, terrain, cellSize);
+        }
       }
+    } else {
+      console.log('getTerrainMap 方法不存在');
     }
 
     // 绘制路径
