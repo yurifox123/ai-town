@@ -3,6 +3,7 @@
  * 能够自主感知、记忆、规划和行动的AI代理
  */
 import MemorySystem from './memory.js';
+import PathFinder from './pathfinder.js';
 
 class Agent {
   constructor(config, llmClient) {
@@ -16,6 +17,8 @@ class Agent {
     this.position = { x: 0, y: 0 };
     // 移动相关
     this.moveTarget = null;
+    this.currentPath = []; // A*计算出的路径
+    this.currentPathIndex = 0; // 当前走到路径的哪一步
     this.movesSinceLastDecision = 0;
     this.decisionInterval = 50; // 每50格做一次新决策
     this.moveInterval = null; // 移动定时器
@@ -525,17 +528,33 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
   }
 
   /**
-   * 开始移动（启动独立定时器，每 0.2 秒走一格）
+   * 开始移动（使用A*寻路）
    */
   startMoving(targetPosition) {
     if (this.moveInterval) {
       clearInterval(this.moveInterval);
     }
 
+    // 使用A*计算路径
+    const startPos = { x: this.position.x, y: this.position.y };
+    const path = PathFinder.findPath(
+      startPos,
+      targetPosition,
+      (x, y) => this.world ? this.world.isPassable(x, y) : true
+    );
+
+    if (!path || path.length === 0) {
+      console.log(`[${this.name}] 无法找到到达目标(${targetPosition.x},${targetPosition.y})的路径`);
+      this.status = 'idle';
+      return false;
+    }
+
+    this.currentPath = path;
+    this.currentPathIndex = 0;
     this.moveTarget = targetPosition;
     this.status = 'moving';
 
-    console.log(`[${this.name}] 开始移动，目标: (${targetPosition.x},${targetPosition.y})，速度: 每 ${this.moveSpeed}ms 一格`);
+    console.log(`[${this.name}] A*寻路完成，路径长度: ${path.length}格，目标: (${targetPosition.x},${targetPosition.y})`);
 
     // 启动移动循环，每 0.2 秒走一格
     this.moveInterval = setInterval(() => {
@@ -562,6 +581,8 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
       this.moveInterval = null;
     }
     this.moveTarget = null;
+    this.currentPath = [];
+    this.currentPathIndex = 0;
     this.status = 'idle';
   }
 
@@ -582,90 +603,62 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
   }
 
   /**
-   * 逐格移动一步
-   * 如果还有移动目标，向目标移动一格
-   * 会检查地形碰撞（不能穿过围墙、河流、栅栏）
+   * 沿A*路径移动一步
    * @returns {boolean} 是否还有剩余移动
    */
   moveOneStep() {
-    if (!this.moveTarget) return false;
+    if (!this.moveTarget || !this.currentPath || this.currentPath.length === 0) {
+      return false;
+    }
 
-    const dx = this.moveTarget.x - this.position.x;
-    const dy = this.moveTarget.y - this.position.y;
+    // 获取路径中的下一个点
+    const nextStep = this.currentPath[this.currentPathIndex];
 
-    // 检查是否已到达目标
-    if (dx === 0 && dy === 0) {
-      console.log(`[${this.name}] 已到达目标位置`);
+    if (!nextStep) {
+      console.log(`[${this.name}] 路径已走完，到达目标`);
       this.moveTarget = null;
+      this.currentPath = [];
+      this.currentPathIndex = 0;
       this.status = 'idle';
       return false;
     }
 
-    // 决定移动方向（先水平后垂直，或随机选择）
-    let moveX = 0;
-    let moveY = 0;
+    // 计算移动方向
+    const dx = nextStep.x - this.position.x;
+    const dy = nextStep.y - this.position.y;
 
-    if (dx !== 0 && dy !== 0) {
-      // 两个方向都有距离，随机选择先移动哪个方向
-      if (Math.random() < 0.5) {
-        moveX = dx > 0 ? 1 : -1;
+    // 再次检查目标位置是否可通行（动态障碍物）
+    if (this.world && !this.world.isPassable(nextStep.x, nextStep.y)) {
+      console.log(`[${this.name}] 路径被阻挡，重新计算路径...`);
+
+      // 从当前位置重新计算路径
+      const remainingPath = PathFinder.findPath(
+        { x: this.position.x, y: this.position.y },
+        this.moveTarget,
+        (x, y) => this.world ? this.world.isPassable(x, y) : true
+      );
+
+      if (remainingPath && remainingPath.length > 0) {
+        this.currentPath = remainingPath;
+        this.currentPathIndex = 0;
+        console.log(`[${this.name}] 重新计算路径成功，新路径长度: ${remainingPath.length}`);
+        return true; // 继续移动
       } else {
-        moveY = dy > 0 ? 1 : -1;
-      }
-    } else if (dx !== 0) {
-      // 只水平移动
-      moveX = dx > 0 ? 1 : -1;
-    } else if (dy !== 0) {
-      // 只垂直移动
-      moveY = dy > 0 ? 1 : -1;
-    }
-
-    // 检查目标位置是否可通行
-    const nextX = this.position.x + moveX;
-    const nextY = this.position.y + moveY;
-
-    if (this.world && !this.world.isPassable(nextX, nextY)) {
-      // 目标位置不可通行（围墙、河流、栅栏）
-      const terrain = this.world.getTerrainAt(nextX, nextY);
-      console.log(`[${this.name}] 移动被阻挡，遇到${terrain || '障碍'}，尝试绕行...`);
-
-      // 尝试另一个方向
-      let altMoveX = 0;
-      let altMoveY = 0;
-
-      if (moveX !== 0) {
-        // 水平移动被阻挡，尝试垂直移动
-        altMoveY = dy > 0 ? 1 : (dy < 0 ? -1 : (Math.random() < 0.5 ? 1 : -1));
-      } else {
-        // 垂直移动被阻挡，尝试水平移动
-        altMoveX = dx > 0 ? 1 : (dx < 0 ? -1 : (Math.random() < 0.5 ? 1 : -1));
-      }
-
-      const altX = this.position.x + altMoveX;
-      const altY = this.position.y + altMoveY;
-
-      if (this.world.isPassable(altX, altY)) {
-        moveX = altMoveX;
-        moveY = altMoveY;
-        console.log(`[${this.name}] 选择绕行方向: (${moveX},${moveY})`);
-      } else {
-        // 两个方向都不行，停止移动并重新决策
-        console.log(`[${this.name}] 无法通行，需要重新规划路线`);
-        this.moveTarget = null;
-        this.status = 'idle';
-        this.movesSinceLastDecision = this.decisionInterval; // 强制触发新决策
+        console.log(`[${this.name}] 无法找到新路径，停止移动`);
+        this.stopMoving();
         return false;
       }
     }
 
     // 执行移动
     const oldPos = { ...this.position };
-    this.position.x += moveX;
-    this.position.y += moveY;
-    this.movesSinceLastDecision++; // 增加移动计数
+    this.position.x = nextStep.x;
+    this.position.y = nextStep.y;
+    this.currentPathIndex++;
+    this.movesSinceLastDecision++;
 
-    const distance = Math.abs(dx) + Math.abs(dy);
-    console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余距离: ${distance - 1}，已走${this.movesSinceLastDecision}格`);
+    const remainingSteps = this.currentPath.length - this.currentPathIndex;
+    console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余: ${remainingSteps}步，已走${this.movesSinceLastDecision}格`);
 
     // 记录移动记忆
     this.memory.addMemory(
@@ -676,8 +669,10 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
     // 检查是否到达目标
     if (this.position.x === this.moveTarget.x && this.position.y === this.moveTarget.y) {
-      console.log(`[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})，已走${this.movesSinceLastDecision}格`);
+      console.log(`[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})，共走${this.movesSinceLastDecision}格`);
       this.moveTarget = null;
+      this.currentPath = [];
+      this.currentPathIndex = 0;
       this.status = 'idle';
       return false;
     }

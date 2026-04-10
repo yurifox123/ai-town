@@ -76,7 +76,8 @@ export const ASSET_CONFIG = {
   tiles: {
     grass: 'tiles/grass.png',
     path: 'tiles/path.png',
-    water: 'tiles/water.png' // 可选
+    water: 'tiles/water.png',
+    wall: 'tiles/wall.png'
   },
   
   // UI 元素配置

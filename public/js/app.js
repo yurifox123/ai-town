@@ -492,95 +492,78 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
   const py = y * cellSize;
 
   switch (terrain) {
-    case 'wall':
-      // 绘制围墙 - 大理石材质（带立体感）
-      const wallHeight = 8; // 围墙高度（用于立体效果）
+    case 'wall': {
+      // 判断是否是底部围墙（地图底部 y=49）
+      const isBottomWall = y === 49;
+      const bottomOffset = isBottomWall ? -9 : 0;
+      // 围墙基础偏移15px，底部围墙额外往上30px
+      const wy = py + 10 + bottomOffset;
+      // 绘制围墙 - 支持贴图
+      const wallTexture = imageLoader.getImage('tiles/wall.png');
 
-      // 1. 绘制围墙顶部（立体顶面）
-      ctx.fillStyle = '#e8e8e0'; // 顶部颜色稍亮
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px + cellSize, py);
-      ctx.lineTo(px + cellSize - 4, py - wallHeight);
-      ctx.lineTo(px - 4, py - wallHeight);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = '#c8c8c0';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      if (wallTexture) {
+        // 使用贴图绘制围墙
+        const wallHeight = cellSize * 0.6;
+        const wallD = cellSize * 0.2;
 
-      // 2. 绘制围墙正面（主体）
-      // 底色 - 米白色大理石
-      ctx.fillStyle = '#f0f0e8';
-      ctx.fillRect(px, py, cellSize, cellSize);
-
-      // 3. 大理石纹理 - 浅灰色云状纹理
-      ctx.fillStyle = 'rgba(180, 180, 170, 0.3)';
-      ctx.beginPath();
-      ctx.moveTo(px, py + cellSize * 0.4);
-      ctx.bezierCurveTo(
-        px + cellSize * 0.3, py + cellSize * 0.2,
-        px + cellSize * 0.7, py + cellSize * 0.3,
-        px + cellSize, py + cellSize * 0.5
-      );
-      ctx.lineTo(px + cellSize, py + cellSize * 0.7);
-      ctx.bezierCurveTo(
-        px + cellSize * 0.7, py + cellSize * 0.5,
-        px + cellSize * 0.3, py + cellSize * 0.6,
-        px, py + cellSize * 0.6
-      );
-      ctx.fill();
-
-      // 4. 大理石纹理线条 - 深灰色
-      ctx.strokeStyle = 'rgba(150, 150, 140, 0.4)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(px + cellSize * 0.1, py);
-      ctx.quadraticCurveTo(
-        px + cellSize * 0.3, py + cellSize * 0.4,
-        px + cellSize * 0.2, py + cellSize
-      );
-      ctx.stroke();
-
-      // 纹理线条2
-      ctx.strokeStyle = 'rgba(160, 160, 150, 0.35)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(px, py + cellSize * 0.75);
-      ctx.quadraticCurveTo(
-        px + cellSize * 0.5, py + cellSize * 0.55,
-        px + cellSize, py + cellSize * 0.8
-      );
-      ctx.stroke();
-
-      // 5. 立体阴影 - 右侧阴影
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-      ctx.fillRect(px + cellSize - 3, py, 3, cellSize);
-
-      // 6. 底部阴影（增加厚重感）
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-      ctx.fillRect(px, py + cellSize - 2, cellSize, 2);
-
-      // 7. 左侧高光（增加立体感）
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.fillRect(px, py, 2, cellSize);
-
-      // 8. 边框线（分隔每块大理石）
-      ctx.strokeStyle = '#d0d0c8';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(px, py, cellSize, cellSize);
-
-      // 9. 表面细微纹理（增加真实感）
-      ctx.fillStyle = 'rgba(200, 200, 190, 0.2)';
-      for (let i = 0; i < 3; i++) {
-        const dotX = px + Math.random() * cellSize * 0.8 + cellSize * 0.1;
-        const dotY = py + Math.random() * cellSize * 0.8 + cellSize * 0.1;
-        const dotSize = Math.random() * 2 + 1;
+        // 绘制右侧面
+        ctx.fillStyle = '#b8b8b0';
         ctx.beginPath();
-        ctx.arc(dotX, dotY, dotSize, 0, Math.PI * 2);
+        ctx.moveTo(px + cellSize, wy - wallHeight);
+        ctx.lineTo(px + cellSize + wallD, wy - wallHeight + wallD);
+        ctx.lineTo(px + cellSize + wallD, wy + wallD);
+        ctx.lineTo(px + cellSize, wy);
+        ctx.closePath();
         ctx.fill();
+
+        // 绘制墙顶
+        ctx.fillStyle = '#e8e8e3';
+        ctx.beginPath();
+        ctx.moveTo(px, wy - wallHeight);
+        ctx.lineTo(px + cellSize, wy - wallHeight);
+        ctx.lineTo(px + cellSize + wallD, wy - wallHeight + wallD);
+        ctx.lineTo(px + wallD, wy - wallHeight + wallD);
+        ctx.closePath();
+        ctx.fill();
+
+        // 绘制主墙面（贴图）
+        ctx.drawImage(wallTexture, px, wy - wallHeight, cellSize, wallHeight + cellSize);
+      } else {
+        // 默认绘制（无贴图时）- 大理石纹理
+        ctx.fillStyle = '#f5f5f0';
+        ctx.fillRect(px, wy, cellSize, cellSize);
+
+        ctx.fillStyle = '#e8e8e3';
+        ctx.beginPath();
+        ctx.moveTo(px, wy + cellSize * 0.3);
+        ctx.quadraticCurveTo(px + cellSize * 0.5, wy + cellSize * 0.1, px + cellSize, wy + cellSize * 0.4);
+        ctx.lineTo(px + cellSize, wy + cellSize * 0.6);
+        ctx.quadraticCurveTo(px + cellSize * 0.5, wy + cellSize * 0.3, px, wy + cellSize * 0.5);
+        ctx.fill();
+
+        ctx.strokeStyle = '#c0c0b8';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px + cellSize * 0.2, wy);
+        ctx.quadraticCurveTo(px + cellSize * 0.4, wy + cellSize * 0.5, px + cellSize * 0.3, wy + cellSize);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#d0d0c8';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(px, wy + cellSize * 0.7);
+        ctx.quadraticCurveTo(px + cellSize * 0.6, wy + cellSize * 0.5, px + cellSize, wy + cellSize * 0.8);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(px, wy, cellSize, cellSize * 0.3);
+
+        ctx.strokeStyle = '#d4d4ce';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, wy, cellSize, cellSize);
       }
       break;
+    }
 
     case 'river':
       // 绘制河流 - 蓝色水面
