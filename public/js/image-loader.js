@@ -3,7 +3,7 @@
  * 负责加载所有素材图片并提供统一的访问接口
  */
 
-import { ASSET_CONFIG } from './asset-config.js';
+import { ASSET_CONFIG } from "./asset-config.js";
 
 class ImageLoader {
   constructor() {
@@ -23,14 +23,14 @@ class ImageLoader {
     return new Promise((resolve) => {
       const fullPath = `${ASSET_CONFIG.basePath}/${path}`;
       const img = new Image();
-      
+
       img.onload = () => {
         this.images.set(fullPath, img);
         this.loaded++;
         this.updateProgress();
         resolve(img);
       };
-      
+
       img.onerror = () => {
         console.warn(`图片加载失败：${fullPath}`);
         this.images.set(fullPath, null);
@@ -38,7 +38,7 @@ class ImageLoader {
         this.updateProgress();
         resolve(null);
       };
-      
+
       img.src = fullPath;
     });
   }
@@ -58,45 +58,52 @@ class ImageLoader {
   async preloadAll(onProgress) {
     this.loading = true;
     this.loaded = 0;
-    
+
     // 收集所有需要加载的图片路径
     const imagePaths = [];
-    
-    // 角色图片
+
+    // 角色图片（含动画帧）
     for (const key of Object.keys(ASSET_CONFIG.characters)) {
       const char = ASSET_CONFIG.characters[key];
       if (char?.sprite) imagePaths.push(char.sprite);
       if (char?.portrait) imagePaths.push(char.portrait);
+      // 预加载动画帧
+      if (char?.animation) {
+        const { basePath, walkFrames, idleFrames } = char.animation;
+        const directions = ["down", "up", "left", "right"];
+        for (const dir of directions) {
+          for (let i = 0; i < walkFrames; i++) {
+            imagePaths.push(`${basePath}${key}-${dir}-walk-${i}.png`);
+          }
+          for (let i = 0; i < idleFrames; i++) {
+            imagePaths.push(`${basePath}${key}-${dir}-idle-${i}.png`);
+          }
+        }
+      }
     }
-    
+
     // 建筑图片
     for (const key of Object.keys(ASSET_CONFIG.buildings)) {
       const building = ASSET_CONFIG.buildings[key];
       if (building?.sprite) imagePaths.push(building.sprite);
     }
-    
+
     // 地面纹理
     for (const key of Object.keys(ASSET_CONFIG.tiles)) {
       const tile = ASSET_CONFIG.tiles[key];
       if (tile) imagePaths.push(tile);
     }
-    
-    // UI 元素
-    for (const key of Object.keys(ASSET_CONFIG.ui)) {
-      const ui = ASSET_CONFIG.ui[key];
-      if (ui) imagePaths.push(ui);
-    }
-    
+
     this.total = imagePaths.length;
     console.log(`开始加载 ${this.total} 张图片...`);
-    
+
     // 并发加载所有图片
-    const promises = imagePaths.map(path => this.loadImage(path));
+    const promises = imagePaths.map((path) => this.loadImage(path));
     await Promise.all(promises);
-    
+
     this.loading = false;
     console.log(`图片加载完成，成功加载 ${this.loaded}/${this.total} 张`);
-    
+
     if (onProgress) {
       onProgress(100);
     }
@@ -108,7 +115,9 @@ class ImageLoader {
    * @returns {HTMLImageElement|null}
    */
   getImage(path) {
-    const fullPath = path.startsWith('/') ? path : `${ASSET_CONFIG.basePath}/${path}`;
+    const fullPath = path.startsWith("/")
+      ? path
+      : `${ASSET_CONFIG.basePath}/${path}`;
     return this.images.get(fullPath) || null;
   }
 
@@ -118,7 +127,9 @@ class ImageLoader {
    * @returns {boolean}
    */
   isLoaded(path) {
-    const fullPath = path.startsWith('/') ? path : `${ASSET_CONFIG.basePath}/${path}`;
+    const fullPath = path.startsWith("/")
+      ? path
+      : `${ASSET_CONFIG.basePath}/${path}`;
     return this.images.has(fullPath) && this.images.get(fullPath) !== null;
   }
 

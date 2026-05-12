@@ -11,7 +11,7 @@
   --bg-secondary: #3a2d52;
   --bg-tertiary: #4a3d62;
   --bg-glass: rgba(43, 31, 62, 0.85);
-  
+
   /* 强调色 */
   --primary-color: #ff9a76;
   --primary-dark: #e88562;
@@ -20,19 +20,19 @@
   --warning-color: #ffd166;
   --danger-color: #ef476f;
   --info-color: #9d8df1;
-  
+
   /* 文字 */
   --text-color: #f5f0eb;
   --text-muted: #b8a9c9;
-  
+
   /* 边框 */
   --border-color: #5a4d72;
-  
+
   /* 游戏元素 */
   --agent-color: #ff9a76;
   --building-color: #a8d8ea;
   --area-color: #88d8b0;
-  
+
   /* 阴影 */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
@@ -41,7 +41,11 @@
 
 /* ========== 基础样式 ========== */
 body {
-  font-family: 'M PLUS Rounded 1c', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "M PLUS Rounded 1c",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   background-color: var(--bg-color);
   color: var(--text-color);
   min-height: 100vh;
@@ -81,7 +85,11 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-tertiary) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--bg-color) 0%,
+    var(--bg-tertiary) 100%
+  );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -115,7 +123,11 @@ body {
 
 .loading-progress {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+  background: linear-gradient(
+    90deg,
+    var(--primary-color),
+    var(--secondary-color)
+  );
   border-radius: 4px;
   transition: width 0.3s ease;
   width: 0%;
@@ -143,6 +155,21 @@ body {
   font-size: 1.5rem;
   color: var(--primary-color);
   font-weight: 700;
+}
+
+.btn-tool-link {
+  color: var(--info-color);
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(157, 141, 241, 0.15);
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-tool-link:hover {
+  background: rgba(157, 141, 241, 0.3);
 }
 
 .header-center {
@@ -444,7 +471,11 @@ body {
 }
 
 .panel-header {
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--bg-secondary) 0%,
+    var(--bg-tertiary) 100%
+  );
   padding: 0.75rem 1rem;
   display: flex;
   justify-content: space-between;
@@ -535,10 +566,18 @@ body {
   border: 2px solid var(--bg-secondary);
 }
 
-.status-dot.idle { background: var(--success-color); }
-.status-dot.busy { background: var(--warning-color); }
-.status-dot.sleeping { background: var(--secondary-color); }
-.status-dot.moving { background: var(--info-color); }
+.status-dot.idle {
+  background: var(--success-color);
+}
+.status-dot.busy {
+  background: var(--warning-color);
+}
+.status-dot.sleeping {
+  background: var(--secondary-color);
+}
+.status-dot.moving {
+  background: var(--info-color);
+}
 
 .agent-info {
   flex: 1;
@@ -621,8 +660,15 @@ body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.1); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
 }
 
 /* 事件日志 */
@@ -808,7 +854,11 @@ body {
 }
 
 .modal-header {
-  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--bg-tertiary) 0%,
+    var(--bg-secondary) 100%
+  );
   padding: 1rem 1.5rem;
   display: flex;
   justify-content: space-between;
@@ -882,7 +932,9 @@ body {
   color: var(--bg-color);
 }
 
-.status-badge.busy { background: var(--warning-color); }
+.status-badge.busy {
+  background: var(--warning-color);
+}
 
 /* 生存属性统计 */
 .stats-row {
@@ -980,7 +1032,9 @@ body {
   font-weight: 600;
 }
 
-.status-badge.sleeping { background: var(--secondary-color); }
+.status-badge.sleeping {
+  background: var(--secondary-color);
+}
 
 /* Tabs */
 .agent-tabs {
@@ -1030,8 +1084,12 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* 记忆列表 */
@@ -1093,7 +1151,7 @@ body {
 }
 
 .goals-list li::before {
-  content: '🎯';
+  content: "🎯";
   position: absolute;
   left: 0.5rem;
 }
@@ -1230,8 +1288,13 @@ body {
 }
 
 @keyframes editor-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.5); }
-  50% { box-shadow: 0 0 0 8px rgba(102, 126, 234, 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(102, 126, 234, 0);
+  }
 }
 
 /* 网格覆盖 */
@@ -1441,19 +1504,18 @@ body {
   display: none !important;
 }
 
-
 /* ========== 响应式 ========== */
 @media (max-width: 1024px) {
   .main-content {
     flex-direction: column;
   }
-  
+
   .sidebar {
     width: 100%;
     flex-direction: row;
     overflow-x: auto;
   }
-  
+
   .panel {
     min-width: 280px;
   }
@@ -1464,17 +1526,17 @@ body {
     flex-wrap: wrap;
     gap: 0.75rem;
   }
-  
+
   .header-center {
     order: 3;
     width: 100%;
     justify-content: center;
   }
-  
+
   .modal-content {
     width: 95vw;
   }
-  
+
   .agent-info-grid {
     grid-template-columns: 1fr;
   }

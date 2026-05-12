@@ -2,73 +2,89 @@
  * AI 生态小镇前端主应用 - 增强版
  * 支持图片精灵渲染和加载界面
  */
-import WorldSimulator from './simulator.js';
-import LLMClient from './llm-client.js';
-import imageLoader from './image-loader.js';
-import { getCharacterSprite, getCharacterPortrait, getBuildingSprite, getCharacterDisplaySize, getBuildingDisplaySize } from './asset-config.js';
+import WorldSimulator from "./simulator.js";
+import LLMClient from "./llm-client.js";
+import imageLoader from "./image-loader.js";
+import {
+  getCharacterSprite,
+  getCharacterPortrait,
+  getBuildingSprite,
+  getCharacterDisplaySize,
+  getBuildingDisplaySize,
+  getCharacterAnimation,
+  getCharacterKey,
+  ASSET_CONFIG,
+} from "./asset-config.js";
+
+// ========== 动画状态管理 ==========
+// 每个 agent 的动画状态：{ frameIndex, lastFrameTime, direction, action, lastAction }
+const agentAnimState = new Map();
 
 // ========== 配置 ==========
 const CONFIG = {
   MAP_CELL_SIZE: 16,
-  MAP_GRID_COLOR: '#1e3a5f',
-  AGENT_COLOR: '#e94560',
-  BUILDING_COLOR: '#4a90d9',
-  AREA_COLOR: '#28a745',
+  MAP_GRID_COLOR: "#1e3a5f",
+  AGENT_COLOR: "#e94560",
+  BUILDING_COLOR: "#4a90d9",
+  AREA_COLOR: "#28a745",
   REFRESH_RATE: 1000 / 30,
   TICK_INTERVAL: 5000,
   WORLD_WIDTH: 50,
   WORLD_HEIGHT: 50,
   TIME_SCALE: 5, // 1秒现实时间 = 5分钟游戏时间
   SHOW_GRID: false,
-  SPRITE_SCALE: 1.0
+  SPRITE_SCALE: 1.0,
 };
 
 // ========== Agent 模板 ==========
 const agentTemplates = {
   xiaoming: {
-    id: 'xiaoming',
-    name: '小明',
+    id: "xiaoming",
+    name: "小明",
     age: 25,
-    traits: '开朗活泼，喜欢社交，热爱咖啡和音乐',
-    background: '一名软件工程师，在一家互联网公司工作。喜欢尝试新事物，周末经常和朋友聚会。',
-    goals: ['学习新技能', '结交新朋友', '保持健康生活方式'],
+    traits: "开朗活泼，喜欢社交，热爱咖啡和音乐",
+    background:
+      "一名软件工程师，在一家互联网公司工作。喜欢尝试新事物，周末经常和朋友聚会。",
+    goals: ["学习新技能", "结交新朋友", "保持健康生活方式"],
     healthMax: 100,
     greenPoints: 10,
-    fullness: 80
+    fullness: 80,
   },
   xiaohong: {
-    id: 'xiaohong',
-    name: '小红',
+    id: "xiaohong",
+    name: "小红",
     age: 24,
-    traits: '温柔细腻，喜欢阅读，安静内敛',
-    background: '一名图书管理员，热爱文学和艺术。喜欢在咖啡馆看书，享受独处时光。',
-    goals: ['读完 100 本书', '学习绘画', '开一家咖啡馆'],
+    traits: "温柔细腻，喜欢阅读，安静内敛",
+    background:
+      "一名图书管理员，热爱文学和艺术。喜欢在咖啡馆看书，享受独处时光。",
+    goals: ["读完 100 本书", "学习绘画", "开一家咖啡馆"],
     healthMax: 85,
     greenPoints: 10,
-    fullness: 75
+    fullness: 75,
   },
   xiaomi: {
-    id: 'xiaomi',
-    name: '小米',
+    id: "xiaomi",
+    name: "小米",
     age: 22,
-    traits: '活泼可爱，喜欢美食，乐观向上',
-    background: '一名美食博主，喜欢探索各种美食。性格开朗，总是能给身边的人带来快乐。',
-    goals: ['成为顶级美食博主', '开一家餐厅', '环游世界品尝美食'],
+    traits: "活泼可爱，喜欢美食，乐观向上",
+    background:
+      "一名美食博主，喜欢探索各种美食。性格开朗，总是能给身边的人带来快乐。",
+    goals: ["成为顶级美食博主", "开一家餐厅", "环游世界品尝美食"],
     healthMax: 90,
     greenPoints: 10,
-    fullness: 70
+    fullness: 70,
   },
   xiaodong: {
-    id: 'xiaodong',
-    name: '小东',
+    id: "xiaodong",
+    name: "小东",
     age: 26,
-    traits: '沉稳内敛，喜欢运动，注重健康',
-    background: '一名健身教练，热爱各种运动。生活规律，是朋友们的健康顾问。',
-    goals: ['帮助更多人健康生活', '参加马拉松比赛', '开一家健身房'],
+    traits: "沉稳内敛，喜欢运动，注重健康",
+    background: "一名健身教练，热爱各种运动。生活规律，是朋友们的健康顾问。",
+    goals: ["帮助更多人健康生活", "参加马拉松比赛", "开一家健身房"],
     healthMax: 100,
     greenPoints: 10,
-    fullness: 90
-  }
+    fullness: 90,
+  },
 };
 
 // ========== 全局状态 ==========
@@ -83,11 +99,11 @@ const state = {
   hoveredElement: null,
   // 编辑模式状态
   isEditMode: false,
-  editorTool: 'select', // select, ground, path, building, eraser
-  editorTerrain: 'grass', // grass, path, water
+  editorTool: "select", // select, ground, path, building, eraser
+  editorTerrain: "grass", // grass, path, water
   editorSelectedBuilding: null,
   editorBuildings: [], // 编辑中的建筑列表
-  mapData: null // 地图数据 (地面类型)
+  mapData: null, // 地图数据 (地面类型)
 };
 
 // ========== DOM 元素缓存 ==========
@@ -104,7 +120,7 @@ let lastPaintedCell = null;
 const editHistory = {
   stack: [],
   index: -1,
-  maxSize: 50
+  maxSize: 50,
 };
 
 // 对话气泡管理
@@ -113,7 +129,7 @@ const dialogueBubbles = new Map();
 function showDialogueBubble(agentId, message) {
   dialogueBubbles.set(agentId, {
     message,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 
   // 3秒后自动消失
@@ -124,13 +140,13 @@ function showDialogueBubble(agentId, message) {
 
 // ========== 初始化 ==========
 async function init() {
-  console.log('🎮 AI 生态小镇前端初始化中...');
+  console.log("🎮 AI 生态小镇前端初始化中...");
 
   // 显示加载界面
   showLoadingScreen();
 
   // 预加载所有图片
-  console.log('📸 正在加载图片素材...');
+  console.log("📸 正在加载图片素材...");
   await imageLoader.preloadAll((progress) => {
     updateLoadingProgress(progress);
   });
@@ -143,7 +159,7 @@ async function init() {
     CONFIG.WORLD_WIDTH,
     CONFIG.WORLD_HEIGHT,
     CONFIG.TIME_SCALE,
-    state.llm
+    state.llm,
   );
 
   // 设置事件监听
@@ -168,14 +184,14 @@ async function init() {
   // 更新 UI
   updateUI();
 
-  console.log('✅ AI 生态小镇初始化完成');
+  console.log("✅ AI 生态小镇初始化完成");
 }
 
 // ========== 加载界面 ==========
 function showLoadingScreen() {
-  const loadingDiv = document.createElement('div');
-  loadingDiv.id = 'loading-screen';
-  loadingDiv.className = 'loading-screen';
+  const loadingDiv = document.createElement("div");
+  loadingDiv.id = "loading-screen";
+  loadingDiv.className = "loading-screen";
   loadingDiv.innerHTML = `
     <div class="loading-content">
       <h2>🏘️ AI 生态小镇</h2>
@@ -188,8 +204,8 @@ function showLoadingScreen() {
   `;
   document.body.appendChild(loadingDiv);
   elements.loadingScreen = loadingDiv;
-  elements.loadingProgress = document.getElementById('loading-progress');
-  elements.loadingText = document.getElementById('loading-text');
+  elements.loadingProgress = document.getElementById("loading-progress");
+  elements.loadingText = document.getElementById("loading-text");
 }
 
 function updateLoadingProgress(progress) {
@@ -203,7 +219,7 @@ function updateLoadingProgress(progress) {
 
 function hideLoadingScreen() {
   if (elements.loadingScreen) {
-    elements.loadingScreen.classList.add('hidden');
+    elements.loadingScreen.classList.add("hidden");
     setTimeout(() => {
       elements.loadingScreen.remove();
     }, 500);
@@ -212,7 +228,7 @@ function hideLoadingScreen() {
 
 // ========== 世界事件监听 ==========
 function setupWorldListeners() {
-  state.world.addEventListener('tick', (e) => {
+  state.world.addEventListener("tick", (e) => {
     const { time, tickCount, townHealth } = e.detail;
     updateGameTime(time);
     updateTickCount(tickCount);
@@ -221,34 +237,34 @@ function setupWorldListeners() {
   });
 
   // 实时时间更新（每秒触发）
-  state.world.addEventListener('timeUpdate', (e) => {
+  state.world.addEventListener("timeUpdate", (e) => {
     updateGameTime(e.detail.time);
     updateTownHealth(e.detail.townHealth);
   });
 
-  state.world.addEventListener('agentJoined', (e) => {
+  state.world.addEventListener("agentJoined", (e) => {
     addEvent({
-      type: 'system',
+      type: "system",
       description: `Agent ${e.detail.name} 加入了世界`,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
     renderAgentList();
   });
 
-  state.world.addEventListener('agentLeft', (e) => {
+  state.world.addEventListener("agentLeft", (e) => {
     renderAgentList();
   });
 
-  state.world.addEventListener('event', (e) => {
+  state.world.addEventListener("event", (e) => {
     addEvent(e.detail);
   });
 
-  state.world.addEventListener('started', () => {
+  state.world.addEventListener("started", () => {
     state.simulationRunning = true;
     updateSimulationStatus();
   });
 
-  state.world.addEventListener('dialogue', (e) => {
+  state.world.addEventListener("dialogue", (e) => {
     showDialogueBubble(e.detail.agentId, e.detail.message);
   });
 }
@@ -256,64 +272,79 @@ function setupWorldListeners() {
 // ========== UI 事件监听 ==========
 function setupUIListeners() {
   // 控制按钮
-  document.getElementById('btn-start').addEventListener('click', () => {
+  document.getElementById("btn-start").addEventListener("click", () => {
     state.world.start();
   });
-  document.getElementById('btn-stop').addEventListener('click', () => {
+  document.getElementById("btn-stop").addEventListener("click", () => {
     state.world.stop();
   });
-  document.getElementById('btn-reset').addEventListener('click', () => {
+  document.getElementById("btn-reset").addEventListener("click", () => {
     state.world.reset();
   });
-  document.getElementById('btn-step').addEventListener('click', async () => {
+  document.getElementById("btn-step").addEventListener("click", async () => {
     await state.world.step();
   });
 
   // 快捷操作
-  document.getElementById('btn-add-agent').addEventListener('click', () => {
-    showModal('add-agent-modal');
+  document.getElementById("btn-add-agent").addEventListener("click", () => {
+    showModal("add-agent-modal");
   });
-  document.getElementById('btn-trigger-event').addEventListener('click', () => {
-    showModal('event-modal');
+  document.getElementById("btn-trigger-event").addEventListener("click", () => {
+    showModal("event-modal");
   });
-  document.getElementById('btn-clear-log').addEventListener('click', () => {
-    document.getElementById('event-log').innerHTML = '<div class="empty-state">暂无事件</div>';
+  document.getElementById("btn-clear-log").addEventListener("click", () => {
+    document.getElementById("event-log").innerHTML =
+      '<div class="empty-state">暂无事件</div>';
   });
 
   // 停止服务器
-  document.getElementById('btn-stop-server').addEventListener('click', async () => {
-    if (confirm('确定要停止服务器吗？')) {
-      try {
-        await fetch('/api/stop', { method: 'POST' });
-      } catch (e) {
-        console.log('服务器已停止');
+  document
+    .getElementById("btn-stop-server")
+    .addEventListener("click", async () => {
+      if (confirm("确定要停止服务器吗？")) {
+        try {
+          await fetch("/api/stop", { method: "POST" });
+        } catch (e) {
+          console.log("服务器已停止");
+        }
       }
-    }
-  });
+    });
 
   // 模态框关闭
-  document.getElementById('btn-close-modal').addEventListener('click', () => {
-    hideModal('agent-modal');
+  document.getElementById("btn-close-modal").addEventListener("click", () => {
+    hideModal("agent-modal");
   });
-  document.getElementById('btn-close-add-modal').addEventListener('click', () => {
-    hideModal('add-agent-modal');
-  });
-  document.getElementById('btn-close-event-modal').addEventListener('click', () => {
-    hideModal('event-modal');
-  });
+  document
+    .getElementById("btn-close-add-modal")
+    .addEventListener("click", () => {
+      hideModal("add-agent-modal");
+    });
+  document
+    .getElementById("btn-close-event-modal")
+    .addEventListener("click", () => {
+      hideModal("event-modal");
+    });
 
   // 表单提交
-  document.getElementById('add-agent-form').addEventListener('submit', handleAddAgent);
-  document.getElementById('event-form').addEventListener('submit', handleTriggerEvent);
+  document
+    .getElementById("add-agent-form")
+    .addEventListener("submit", handleAddAgent);
+  document
+    .getElementById("event-form")
+    .addEventListener("submit", handleTriggerEvent);
 
   // Tab 切换
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
       const tabName = e.target.dataset.tab;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-      e.target.classList.add('active');
-      document.getElementById(`tab-${tabName}`).classList.add('active');
+      document
+        .querySelectorAll(".tab-btn")
+        .forEach((b) => b.classList.remove("active"));
+      document
+        .querySelectorAll(".tab-pane")
+        .forEach((p) => p.classList.remove("active"));
+      e.target.classList.add("active");
+      document.getElementById(`tab-${tabName}`).classList.add("active");
     });
   });
 
@@ -323,8 +354,8 @@ function setupUIListeners() {
 
 // ========== 画布初始化 ==========
 function initCanvas() {
-  state.canvas = document.getElementById('world-map');
-  state.ctx = state.canvas.getContext('2d');
+  state.canvas = document.getElementById("world-map");
+  state.ctx = state.canvas.getContext("2d");
 
   const container = state.canvas.parentElement;
   const maxWidth = container.clientWidth - 40;
@@ -342,11 +373,11 @@ function initCanvas() {
   state.canvas.style.height = `${height * scale}px`;
 
   // 画布交互
-  state.canvas.addEventListener('mousemove', handleMouseMove);
-  state.canvas.addEventListener('click', handleCanvasClick);
-  state.canvas.addEventListener('mousedown', handleCanvasMouseDown);
-  state.canvas.addEventListener('mouseup', handleCanvasMouseUp);
-  state.canvas.addEventListener('mouseleave', () => {
+  state.canvas.addEventListener("mousemove", handleMouseMove);
+  state.canvas.addEventListener("click", handleCanvasClick);
+  state.canvas.addEventListener("mousedown", handleCanvasMouseDown);
+  state.canvas.addEventListener("mouseup", handleCanvasMouseUp);
+  state.canvas.addEventListener("mouseleave", () => {
     hideTooltip();
     state.hoveredElement = null;
     isPainting = false;
@@ -355,7 +386,7 @@ function initCanvas() {
   });
 
   // 键盘事件（撤销/重做）
-  document.addEventListener('keydown', handleEditorKeyDown);
+  document.addEventListener("keydown", handleEditorKeyDown);
 }
 
 // ========== 渲染循环 ==========
@@ -380,28 +411,36 @@ function drawMap() {
   if (state.isEditMode && state.mapData) {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const terrain = state.mapData[y]?.[x] || 'grass';
+        const terrain = state.mapData[y]?.[x] || "grass";
         drawTerrain(ctx, x, y, terrain, cellSize);
       }
     }
   } else {
     // 正常模式使用草地纹理
-    const grassImage = imageLoader.getImage('/assets/tiles/grass.png');
+    const grassImage = imageLoader.getImage("/assets/tiles/grass.png");
     if (grassImage) {
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-          ctx.drawImage(grassImage, x * cellSize, y * cellSize, cellSize, cellSize);
+          ctx.drawImage(
+            grassImage,
+            x * cellSize,
+            y * cellSize,
+            cellSize,
+            cellSize,
+          );
         }
       }
     } else {
-      ctx.fillStyle = '#0d1b2a';
+      ctx.fillStyle = "#0d1b2a";
       ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
     }
   }
 
   // 绘制网格
   if (CONFIG.SHOW_GRID || state.isEditMode) {
-    ctx.strokeStyle = state.isEditMode ? 'rgba(255, 255, 255, 0.2)' : CONFIG.MAP_GRID_COLOR;
+    ctx.strokeStyle = state.isEditMode
+      ? "rgba(255, 255, 255, 0.2)"
+      : CONFIG.MAP_GRID_COLOR;
     ctx.lineWidth = 0.5;
     ctx.beginPath();
     for (let x = 0; x <= width; x++) {
@@ -427,15 +466,15 @@ function drawMap() {
     // 绘制地形（围墙、河流、大门、桥梁）
     if (worldState.getTerrainMap) {
       const terrainMap = worldState.getTerrainMap();
-      console.log('地形数量:', terrainMap.size);
+      console.log("地形数量:", terrainMap.size);
       if (terrainMap.size > 0) {
         for (const [key, terrain] of terrainMap) {
-          const [tx, ty] = key.split(',').map(Number);
+          const [tx, ty] = key.split(",").map(Number);
           drawTerrainTile(ctx, tx, ty, terrain, cellSize);
         }
       }
     } else {
-      console.log('getTerrainMap 方法不存在');
+      console.log("getTerrainMap 方法不存在");
     }
 
     // 绘制路径
@@ -458,30 +497,30 @@ function drawTerrain(ctx, x, y, terrain, cellSize) {
   const py = y * cellSize;
 
   switch (terrain) {
-    case 'grass':
-      ctx.fillStyle = '#1a2f3d';
+    case "grass":
+      ctx.fillStyle = "#1a2f3d";
       ctx.fillRect(px, py, cellSize, cellSize);
       // 添加一些纹理
       if ((x + y) % 4 === 0) {
-        ctx.fillStyle = '#1e3545';
+        ctx.fillStyle = "#1e3545";
         ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
       }
       break;
-    case 'path':
-      ctx.fillStyle = '#c9b896';
+    case "path":
+      ctx.fillStyle = "#c9b896";
       ctx.fillRect(px, py, cellSize, cellSize);
-      ctx.strokeStyle = '#b8a685';
+      ctx.strokeStyle = "#b8a685";
       ctx.lineWidth = 0.5;
       ctx.strokeRect(px, py, cellSize, cellSize);
       break;
-    case 'water':
-      ctx.fillStyle = '#3b82f6';
+    case "water":
+      ctx.fillStyle = "#3b82f6";
       ctx.fillRect(px, py, cellSize, cellSize);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
       ctx.fillRect(px, py + cellSize / 2, cellSize, cellSize / 2);
       break;
     default:
-      ctx.fillStyle = '#1a2f3d';
+      ctx.fillStyle = "#1a2f3d";
       ctx.fillRect(px, py, cellSize, cellSize);
   }
 }
@@ -492,14 +531,14 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
   const py = y * cellSize;
 
   switch (terrain) {
-    case 'wall': {
+    case "wall": {
       // 判断是否是底部围墙（地图底部 y=49）
       const isBottomWall = y === 49;
       const bottomOffset = isBottomWall ? -9 : 0;
       // 围墙基础偏移15px，底部围墙额外往上30px
       const wy = py + 10 + bottomOffset;
       // 绘制围墙 - 支持贴图
-      const wallTexture = imageLoader.getImage('tiles/wall.png');
+      const wallTexture = imageLoader.getImage("tiles/wall.png");
 
       if (wallTexture) {
         // 使用贴图绘制围墙
@@ -507,7 +546,7 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
         const wallD = cellSize * 0.2;
 
         // 绘制右侧面
-        ctx.fillStyle = '#b8b8b0';
+        ctx.fillStyle = "#b8b8b0";
         ctx.beginPath();
         ctx.moveTo(px + cellSize, wy - wallHeight);
         ctx.lineTo(px + cellSize + wallD, wy - wallHeight + wallD);
@@ -517,7 +556,7 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
         ctx.fill();
 
         // 绘制墙顶
-        ctx.fillStyle = '#e8e8e3';
+        ctx.fillStyle = "#e8e8e3";
         ctx.beginPath();
         ctx.moveTo(px, wy - wallHeight);
         ctx.lineTo(px + cellSize, wy - wallHeight);
@@ -527,76 +566,102 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
         ctx.fill();
 
         // 绘制主墙面（贴图）
-        ctx.drawImage(wallTexture, px, wy - wallHeight, cellSize, wallHeight + cellSize);
+        ctx.drawImage(
+          wallTexture,
+          px,
+          wy - wallHeight,
+          cellSize,
+          wallHeight + cellSize,
+        );
       } else {
         // 默认绘制（无贴图时）- 大理石纹理
-        ctx.fillStyle = '#f5f5f0';
+        ctx.fillStyle = "#f5f5f0";
         ctx.fillRect(px, wy, cellSize, cellSize);
 
-        ctx.fillStyle = '#e8e8e3';
+        ctx.fillStyle = "#e8e8e3";
         ctx.beginPath();
         ctx.moveTo(px, wy + cellSize * 0.3);
-        ctx.quadraticCurveTo(px + cellSize * 0.5, wy + cellSize * 0.1, px + cellSize, wy + cellSize * 0.4);
+        ctx.quadraticCurveTo(
+          px + cellSize * 0.5,
+          wy + cellSize * 0.1,
+          px + cellSize,
+          wy + cellSize * 0.4,
+        );
         ctx.lineTo(px + cellSize, wy + cellSize * 0.6);
-        ctx.quadraticCurveTo(px + cellSize * 0.5, wy + cellSize * 0.3, px, wy + cellSize * 0.5);
+        ctx.quadraticCurveTo(
+          px + cellSize * 0.5,
+          wy + cellSize * 0.3,
+          px,
+          wy + cellSize * 0.5,
+        );
         ctx.fill();
 
-        ctx.strokeStyle = '#c0c0b8';
+        ctx.strokeStyle = "#c0c0b8";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(px + cellSize * 0.2, wy);
-        ctx.quadraticCurveTo(px + cellSize * 0.4, wy + cellSize * 0.5, px + cellSize * 0.3, wy + cellSize);
+        ctx.quadraticCurveTo(
+          px + cellSize * 0.4,
+          wy + cellSize * 0.5,
+          px + cellSize * 0.3,
+          wy + cellSize,
+        );
         ctx.stroke();
 
-        ctx.strokeStyle = '#d0d0c8';
+        ctx.strokeStyle = "#d0d0c8";
         ctx.lineWidth = 0.8;
         ctx.beginPath();
         ctx.moveTo(px, wy + cellSize * 0.7);
-        ctx.quadraticCurveTo(px + cellSize * 0.6, wy + cellSize * 0.5, px + cellSize, wy + cellSize * 0.8);
+        ctx.quadraticCurveTo(
+          px + cellSize * 0.6,
+          wy + cellSize * 0.5,
+          px + cellSize,
+          wy + cellSize * 0.8,
+        );
         ctx.stroke();
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
         ctx.fillRect(px, wy, cellSize, cellSize * 0.3);
 
-        ctx.strokeStyle = '#d4d4ce';
+        ctx.strokeStyle = "#d4d4ce";
         ctx.lineWidth = 1;
         ctx.strokeRect(px, wy, cellSize, cellSize);
       }
       break;
     }
 
-    case 'river':
+    case "river":
       // 绘制河流 - 蓝色水面
-      ctx.fillStyle = '#3498db';
+      ctx.fillStyle = "#3498db";
       ctx.fillRect(px, py, cellSize, cellSize);
       // 水波纹效果
-      ctx.fillStyle = '#5dade2';
+      ctx.fillStyle = "#5dade2";
       ctx.fillRect(px + 2, py + 4, cellSize - 4, cellSize - 8);
       break;
 
-    case 'gate':
+    case "gate":
       // 绘制大门 - 棕色木门，可通行
-      ctx.fillStyle = '#8b4513';
+      ctx.fillStyle = "#8b4513";
       ctx.fillRect(px, py, cellSize, cellSize);
       // 门上的装饰
-      ctx.fillStyle = '#a0522d';
+      ctx.fillStyle = "#a0522d";
       ctx.fillRect(px + 3, py + 3, cellSize - 6, cellSize - 6);
       // 门把手
-      ctx.fillStyle = '#ffd700';
+      ctx.fillStyle = "#ffd700";
       ctx.beginPath();
       ctx.arc(px + cellSize - 6, py + cellSize / 2, 3, 0, Math.PI * 2);
       ctx.fill();
       break;
 
-    case 'bridge':
+    case "bridge":
       // 绘制桥梁 - 棕色木板
-      ctx.fillStyle = '#8b4513';
+      ctx.fillStyle = "#8b4513";
       ctx.fillRect(px, py, cellSize, cellSize);
       // 木板纹理
-      ctx.fillStyle = '#a0522d';
+      ctx.fillStyle = "#a0522d";
       ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
       // 桥栏杆
-      ctx.strokeStyle = '#654321';
+      ctx.strokeStyle = "#654321";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, py + 4);
@@ -606,12 +671,12 @@ function drawTerrainTile(ctx, x, y, terrain, cellSize) {
       ctx.stroke();
       break;
 
-    case 'fence':
+    case "fence":
       // 绘制栅栏 - 浅棕色木栅栏
-      ctx.fillStyle = '#d2b48c';
+      ctx.fillStyle = "#d2b48c";
       ctx.fillRect(px, py, cellSize, cellSize);
       // 栅栏柱
-      ctx.fillStyle = '#8b7355';
+      ctx.fillStyle = "#8b7355";
       ctx.fillRect(px + 2, py + 2, 4, cellSize - 4);
       ctx.fillRect(px + cellSize - 6, py + 2, 4, cellSize - 4);
       // 横栏
@@ -642,42 +707,44 @@ function drawEditorBuilding(ctx, building, cellSize) {
 
   // 选中高亮
   if (state.editorSelectedBuilding?.id === building.id) {
-    ctx.strokeStyle = '#667eea';
+    ctx.strokeStyle = "#667eea";
     ctx.lineWidth = 3;
     ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
   }
 
   // 名称标签
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
   const nameWidth = ctx.measureText(building.name).width + 10;
   ctx.fillRect(x + (w - nameWidth) / 2, y - 18, nameWidth, 16);
-  ctx.fillStyle = '#fff';
-  ctx.font = '9px sans-serif';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = "#fff";
+  ctx.font = "9px sans-serif";
+  ctx.textAlign = "center";
   ctx.fillText(building.name, x + w / 2, y - 6);
 }
 
 function drawBuildingPlaceholder(ctx, x, y, w, h, building) {
   // 背景
-  ctx.fillStyle = building.obstacle ? 'rgba(231, 76, 60, 0.3)' : 'rgba(46, 204, 113, 0.3)';
+  ctx.fillStyle = building.obstacle
+    ? "rgba(231, 76, 60, 0.3)"
+    : "rgba(46, 204, 113, 0.3)";
   ctx.fillRect(x, y, w, h);
 
   // 边框
-  ctx.strokeStyle = building.obstacle ? '#e74c3c' : '#2ecc71';
+  ctx.strokeStyle = building.obstacle ? "#e74c3c" : "#2ecc71";
   ctx.lineWidth = 2;
   ctx.strokeRect(x, y, w, h);
 
   // ID文字
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 14px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 14px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
   ctx.fillText(building.id, x + w / 2, y + h / 2);
 }
 
 // ========== 路径绘制 ==========
 function drawPaths(ctx, cellSize) {
-  const pathImage = imageLoader.getImage('/assets/tiles/path.png');
+  const pathImage = imageLoader.getImage("/assets/tiles/path.png");
 
   // 笔直的道路网格 - 主街道
   const roadWidth = 2; // 道路宽度2格
@@ -715,10 +782,10 @@ function drawRoadTile(ctx, x, y, cellSize, pathImage) {
     ctx.drawImage(pathImage, px, py, cellSize, cellSize);
   } else {
     // 道路底色
-    ctx.fillStyle = '#c9b896';
+    ctx.fillStyle = "#c9b896";
     ctx.fillRect(px, py, cellSize, cellSize);
     // 道路边缘线
-    ctx.strokeStyle = '#b8a685';
+    ctx.strokeStyle = "#b8a685";
     ctx.lineWidth = 0.5;
     ctx.strokeRect(px, py, cellSize, cellSize);
   }
@@ -739,36 +806,42 @@ function drawObject(ctx, obj, cellSize) {
     const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
 
     // 绘制建筑
-    ctx.drawImage(sprite, x - drawWidth / 2, y - drawHeight / 2, drawWidth, drawHeight);
+    ctx.drawImage(
+      sprite,
+      x - drawWidth / 2,
+      y - drawHeight / 2,
+      drawWidth,
+      drawHeight,
+    );
   } else {
     // 回退到原始矩形
     const size = cellSize * 3;
     switch (obj.type) {
-      case 'building':
+      case "building":
         ctx.fillStyle = CONFIG.BUILDING_COLOR;
         break;
-      case 'area':
+      case "area":
         ctx.fillStyle = CONFIG.AREA_COLOR;
         break;
       default:
-        ctx.fillStyle = '#6c757d';
+        ctx.fillStyle = "#6c757d";
     }
     ctx.fillRect(x - size / 2, y - size / 2, size, size);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = "#fff";
     ctx.lineWidth = 1;
     ctx.strokeRect(x - size / 2, y - size / 2, size, size);
   }
 
   // 名称标签
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
   const textMeasure = ctx.measureText(obj.name);
   const nameWidth = textMeasure.width + 10;
   const labelY = y + (sprite ? displaySize[1] : cellSize * 3) / 2 + 6;
   ctx.fillRect(x - nameWidth / 2, labelY - 12, nameWidth, 18);
-  
-  ctx.fillStyle = '#fff';
-  ctx.font = '10px sans-serif';
-  ctx.textAlign = 'center';
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "center";
   ctx.fillText(obj.name, x, labelY + 2);
 }
 
@@ -777,69 +850,183 @@ function drawAgent(ctx, agent, cellSize) {
   const x = agent.position.x * cellSize;
   const y = agent.position.y * cellSize;
 
-  // 获取角色图片
-  const spritePath = getCharacterSprite(agent.agentId);
-  const sprite = spritePath ? imageLoader.getImage(spritePath) : null;
+  const animConfig = getCharacterAnimation(agent.agentId);
   const displaySize = getCharacterDisplaySize(agent.agentId);
 
-  if (sprite) {
-    const drawWidth = displaySize[0] * CONFIG.SPRITE_SCALE;
-    const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
-    
+  if (animConfig) {
+    // 动画模式：从独立帧文件绘制
+    let direction = agent.facingDirection || "down";
+    const action = agent.status === "moving" ? "walk" : "idle";
+    const frameCount =
+      action === "walk" ? animConfig.walkFrames : animConfig.idleFrames;
+    const flipH = direction === "right"; // 右方向 = 左方向水平翻转
+    if (flipH) direction = "left"; // 加载左方向的图片
+
+    // 初始化或更新动画状态
+    let state = agentAnimState.get(agent.agentId);
+    if (!state) {
+      state = { frameIndex: 0, lastFrameTime: 0, lastAction: action };
+      agentAnimState.set(agent.agentId, state);
+    }
+
+    // 动作变化时重置帧
+    if (action !== state.lastAction) {
+      state.frameIndex = 0;
+      state.lastAction = action;
+      state.lastFrameTime = performance.now();
+    }
+
+    // 走路动画帧循环（4fps = 250ms 每帧）
+    if (action === "walk" && frameCount > 1) {
+      const now = performance.now();
+      if (now - state.lastFrameTime > 250) {
+        state.frameIndex = (state.frameIndex + 1) % frameCount;
+        state.lastFrameTime = now;
+      }
+    }
+
+    // 构建帧文件路径（带角色名前缀，与导出工具命名一致）
+    const charKey = getCharacterKey(agent.agentId);
+    const framePath = `${ASSET_CONFIG.basePath}/${animConfig.basePath}${charKey}-${direction}-${action}-${state.frameIndex}.png`;
+    const sprite = imageLoader.getImage(framePath);
+
+    const drawWidth = 100; // 固定角色宽度
+    const drawHeight = sprite
+      ? Math.round((100 * sprite.naturalHeight) / sprite.naturalWidth)
+      : Math.round((100 * 174) / 113);
+
     // 绘制阴影
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
     ctx.beginPath();
     ctx.ellipse(x, y + drawHeight / 2 - 2, drawWidth / 3, 6, 0, 0, Math.PI * 2);
     ctx.fill();
-    
-    // 绘制角色
-    ctx.drawImage(sprite, x - drawWidth / 2, y - drawHeight / 2, drawWidth, drawHeight);
-  } else {
-    // 回退到圆形
-    const radius = cellSize * 0.8;
-    ctx.beginPath();
-    ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
-    switch (agent.status) {
-      case 'busy': ctx.fillStyle = '#ffc107'; break;
-      case 'sleeping': ctx.fillStyle = '#6c757d'; break;
-      default: ctx.fillStyle = '#28a745';
+
+    if (sprite) {
+      if (flipH) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(
+          sprite,
+          -drawWidth / 2,
+          -drawHeight / 2,
+          drawWidth,
+          drawHeight,
+        );
+        ctx.restore();
+      } else {
+        ctx.drawImage(
+          sprite,
+          x - drawWidth / 2,
+          y - drawHeight / 2,
+          drawWidth,
+          drawHeight,
+        );
+      }
+    } else {
+      ctx.fillStyle = "#e94560";
+      ctx.fillRect(
+        x - drawWidth / 2,
+        y - drawHeight / 2,
+        drawWidth,
+        drawHeight,
+      );
     }
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = CONFIG.AGENT_COLOR;
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+  } else {
+    // 静态模式：使用单张精灵图
+    const spritePath = getCharacterSprite(agent.agentId);
+    const sprite = spritePath ? imageLoader.getImage(spritePath) : null;
+
+    if (sprite) {
+      const drawWidth = 100; // 固定角色宽度
+      const drawHeight = sprite
+        ? Math.round((100 * sprite.naturalHeight) / sprite.naturalWidth)
+        : Math.round((100 * 174) / 113);
+
+      // 绘制阴影
+      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x,
+        y + drawHeight / 2 - 2,
+        drawWidth / 3,
+        6,
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+
+      // 绘制角色
+      ctx.drawImage(
+        sprite,
+        x - drawWidth / 2,
+        y - drawHeight / 2,
+        drawWidth,
+        drawHeight,
+      );
+    } else {
+      // 回退到圆形
+      const radius = cellSize * 0.8;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+      switch (agent.status) {
+        case "busy":
+          ctx.fillStyle = "#ffc107";
+          break;
+        case "sleeping":
+          ctx.fillStyle = "#6c757d";
+          break;
+        default:
+          ctx.fillStyle = "#28a745";
+      }
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = CONFIG.AGENT_COLOR;
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   // 状态指示点
-  const statusColors = { idle: '#28a745', busy: '#ffc107', sleeping: '#6c757d', moving: '#17a2b8' };
-  const statusColor = statusColors[agent.status] || '#28a745';
-  const offsetX = sprite ? displaySize[0] / 2 : cellSize / 2;
-  const offsetY = sprite ? displaySize[1] / 2 : cellSize / 2;
-  
+  const statusColors = {
+    idle: "#28a745",
+    busy: "#ffc107",
+    sleeping: "#6c757d",
+    moving: "#17a2b8",
+  };
+  const statusColor = statusColors[agent.status] || "#28a745";
+  const useAnimSize = !!animConfig;
+  const offsetX = useAnimSize ? displaySize[0] / 2 : cellSize / 2;
+  const offsetY = useAnimSize ? displaySize[1] / 2 : cellSize / 2;
+
   ctx.beginPath();
   ctx.arc(x + offsetX - 10, y + offsetY - 10, 5, 0, Math.PI * 2);
   ctx.fillStyle = statusColor;
   ctx.fill();
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = "#fff";
   ctx.lineWidth = 1;
   ctx.stroke();
 
   // 名字标签
-  const nameY = y - (sprite ? displaySize[1] : cellSize) / 2 - 8;
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  const nameY = y - (useAnimSize ? displaySize[1] : cellSize) / 2 - 8;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
   const nameWidth = ctx.measureText(agent.name).width + 10;
   ctx.fillRect(x - nameWidth / 2, nameY - 12, nameWidth, 16);
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 11px sans-serif';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 11px sans-serif";
+  ctx.textAlign = "center";
   ctx.fillText(agent.name, x, nameY);
 
   // 计算需要显示的气泡
-  const hasAction = agent.currentAction && (typeof agent.currentAction === 'object' ? agent.currentAction.description : agent.currentAction);
+  const hasAction =
+    agent.currentAction &&
+    (typeof agent.currentAction === "object"
+      ? agent.currentAction.description
+      : agent.currentAction);
   const hasDialogue = dialogueBubbles.has(agent.agentId);
 
   // 基础Y位置（名字上方）
@@ -867,11 +1054,17 @@ function drawAgent(ctx, agent, cellSize) {
     const bubbleTopY = bubbleBottomY - bubbleHeight;
 
     // 绘制气泡背景（对话气泡用蓝色系区分）
-    ctx.fillStyle = 'rgba(200, 230, 255, 0.95)';
-    ctx.strokeStyle = '#4a90d9';
+    ctx.fillStyle = "rgba(200, 230, 255, 0.95)";
+    ctx.strokeStyle = "#4a90d9";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(x - bubbleWidth / 2, bubbleTopY, bubbleWidth, bubbleHeight, 8);
+    ctx.roundRect(
+      x - bubbleWidth / 2,
+      bubbleTopY,
+      bubbleWidth,
+      bubbleHeight,
+      8,
+    );
     ctx.fill();
     ctx.stroke();
 
@@ -885,9 +1078,9 @@ function drawAgent(ctx, agent, cellSize) {
     ctx.stroke();
 
     // 绘制文字
-    ctx.fillStyle = '#333';
-    ctx.textAlign = 'center';
-    ctx.font = fontSize + 'px sans-serif';
+    ctx.fillStyle = "#333";
+    ctx.textAlign = "center";
+    ctx.font = fontSize + "px sans-serif";
     // 垂直居中：起始位置 = 顶部 + 内边距 + 字体基线偏移
     const startY = bubbleTopY + paddingY + fontSize;
     for (let i = 0; i < lines.length; i++) {
@@ -900,7 +1093,10 @@ function drawAgent(ctx, agent, cellSize) {
 
   // 绘制动作气泡（在上面）
   if (hasAction) {
-    const desc = typeof agent.currentAction === 'object' ? agent.currentAction.description : agent.currentAction;
+    const desc =
+      typeof agent.currentAction === "object"
+        ? agent.currentAction.description
+        : agent.currentAction;
     const paddingY = 6;
     const maxCharsPerLine = 8;
     const lineHeight = 14;
@@ -918,11 +1114,17 @@ function drawAgent(ctx, agent, cellSize) {
     const bubbleTopY = bubbleBottomY - bubbleHeight;
 
     // 绘制气泡背景（动作气泡用黄色系）
-    ctx.fillStyle = 'rgba(255, 250, 220, 0.95)';
-    ctx.strokeStyle = '#e6a23c';
+    ctx.fillStyle = "rgba(255, 250, 220, 0.95)";
+    ctx.strokeStyle = "#e6a23c";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(x - bubbleWidth / 2, bubbleTopY, bubbleWidth, bubbleHeight, 6);
+    ctx.roundRect(
+      x - bubbleWidth / 2,
+      bubbleTopY,
+      bubbleWidth,
+      bubbleHeight,
+      6,
+    );
     ctx.fill();
     ctx.stroke();
 
@@ -936,9 +1138,9 @@ function drawAgent(ctx, agent, cellSize) {
     ctx.stroke();
 
     // 绘制文字
-    ctx.fillStyle = '#666';
-    ctx.textAlign = 'center';
-    ctx.font = fontSize + 'px sans-serif';
+    ctx.fillStyle = "#666";
+    ctx.textAlign = "center";
+    ctx.font = fontSize + "px sans-serif";
     // 垂直居中：起始位置 = 顶部 + 内边距 + 字体基线偏移
     const startY = bubbleTopY + paddingY + fontSize;
     for (let i = 0; i < lines.length; i++) {
@@ -950,8 +1152,8 @@ function drawAgent(ctx, agent, cellSize) {
   }
 
   // 睡眠效果
-  if (agent.status === 'sleeping') {
-    const sleepImage = imageLoader.getImage('/assets/ui/sleep-zzz.png');
+  if (agent.status === "sleeping") {
+    const sleepImage = imageLoader.getImage("/assets/ui/sleep-zzz.png");
     // 计算睡眠效果位置（在最上方气泡的上面）
     let sleepY = currentBubbleY - 25;
     if (!hasAction && !hasDialogue) {
@@ -961,10 +1163,10 @@ function drawAgent(ctx, agent, cellSize) {
       const oscillation = Math.sin(Date.now() / 500) * 3;
       ctx.drawImage(sleepImage, x + 15, sleepY + oscillation, 20, 20);
     } else {
-      ctx.fillStyle = '#6495ed';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText('Zzz...', x + 15, sleepY + 10);
+      ctx.fillStyle = "#6495ed";
+      ctx.font = "bold 14px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("Zzz...", x + 15, sleepY + 10);
     }
   }
 }
@@ -986,12 +1188,18 @@ function handleMouseMove(e) {
       const gridY = Math.floor(mouseY / cellSize) - dragOffset.y;
 
       // 边界检查
-      dragBuilding.x = Math.max(0, Math.min(gridX, CONFIG.WORLD_WIDTH - dragBuilding.width));
-      dragBuilding.y = Math.max(0, Math.min(gridY, CONFIG.WORLD_HEIGHT - dragBuilding.height));
+      dragBuilding.x = Math.max(
+        0,
+        Math.min(gridX, CONFIG.WORLD_WIDTH - dragBuilding.width),
+      );
+      dragBuilding.y = Math.max(
+        0,
+        Math.min(gridY, CONFIG.WORLD_HEIGHT - dragBuilding.height),
+      );
       return;
     }
 
-    if (isPainting && state.editorTool !== 'select') {
+    if (isPainting && state.editorTool !== "select") {
       // 连续绘制地形
       const gridX = Math.floor(mouseX / cellSize);
       const gridY = Math.floor(mouseY / cellSize);
@@ -1000,10 +1208,15 @@ function handleMouseMove(e) {
       if (lastPaintedCell?.x !== gridX || lastPaintedCell?.y !== gridY) {
         lastPaintedCell = { x: gridX, y: gridY };
 
-        if (gridX >= 0 && gridX < CONFIG.WORLD_WIDTH && gridY >= 0 && gridY < CONFIG.WORLD_HEIGHT) {
-          if (state.editorTool === 'ground' || state.editorTool === 'path') {
+        if (
+          gridX >= 0 &&
+          gridX < CONFIG.WORLD_WIDTH &&
+          gridY >= 0 &&
+          gridY < CONFIG.WORLD_HEIGHT
+        ) {
+          if (state.editorTool === "ground" || state.editorTool === "path") {
             paintTerrain(gridX, gridY, state.editorTerrain);
-          } else if (state.editorTool === 'eraser') {
+          } else if (state.editorTool === "eraser") {
             eraseAt(gridX, gridY);
           }
         }
@@ -1023,9 +1236,13 @@ function handleMouseMove(e) {
     const ax = agent.position.x * cellSize;
     const ay = agent.position.y * cellSize;
 
-    if (mouseX >= ax - drawWidth / 2 && mouseX <= ax + drawWidth / 2 &&
-        mouseY >= ay - drawHeight / 2 && mouseY <= ay + drawHeight / 2) {
-      hovered = { type: 'agent', data: agent };
+    if (
+      mouseX >= ax - drawWidth / 2 &&
+      mouseX <= ax + drawWidth / 2 &&
+      mouseY >= ay - drawHeight / 2 &&
+      mouseY <= ay + drawHeight / 2
+    ) {
+      hovered = { type: "agent", data: agent };
       break;
     }
   }
@@ -1039,9 +1256,13 @@ function handleMouseMove(e) {
       const ox = obj.position.x * cellSize;
       const oy = obj.position.y * cellSize;
 
-      if (mouseX >= ox - drawWidth / 2 * 1.5 && mouseX <= ox + drawWidth / 2 * 1.5 &&
-          mouseY >= oy - drawHeight / 2 * 1.5 && mouseY <= oy + drawHeight / 2 * 1.5) {
-        hovered = { type: 'object', data: obj };
+      if (
+        mouseX >= ox - (drawWidth / 2) * 1.5 &&
+        mouseX <= ox + (drawWidth / 2) * 1.5 &&
+        mouseY >= oy - (drawHeight / 2) * 1.5 &&
+        mouseY <= oy + (drawHeight / 2) * 1.5
+      ) {
+        hovered = { type: "object", data: obj };
         break;
       }
     }
@@ -1079,8 +1300,12 @@ function handleCanvasClick(e) {
     const ax = agent.position.x * cellSize;
     const ay = agent.position.y * cellSize;
 
-    if (mouseX >= ax - drawWidth / 2 && mouseX <= ax + drawWidth / 2 &&
-        mouseY >= ay - drawHeight / 2 && mouseY <= ay + drawHeight / 2) {
+    if (
+      mouseX >= ax - drawWidth / 2 &&
+      mouseX <= ax + drawWidth / 2 &&
+      mouseY >= ay - drawHeight / 2 &&
+      mouseY <= ay + drawHeight / 2
+    ) {
       // 显示属性卡片
       showAgentCard(agent, e.clientX, e.clientY);
       return;
@@ -1094,43 +1319,56 @@ function handleCanvasClick(e) {
 // ========== 角色属性卡片 ==========
 
 function showAgentCard(agent, clickX, clickY) {
-  const card = document.getElementById('agent-card');
+  const card = document.getElementById("agent-card");
   if (!card) return;
 
   // 填充数据
   const portraitPath = getCharacterPortrait(agent.agentId);
-  const portraitImg = document.getElementById('agent-card-portrait');
+  const portraitImg = document.getElementById("agent-card-portrait");
   if (portraitImg) {
-    portraitImg.src = portraitPath || '';
-    portraitImg.onerror = () => { portraitImg.style.display = 'none'; };
-    portraitImg.onload = () => { portraitImg.style.display = 'block'; };
+    portraitImg.src = portraitPath || "";
+    portraitImg.onerror = () => {
+      portraitImg.style.display = "none";
+    };
+    portraitImg.onload = () => {
+      portraitImg.style.display = "block";
+    };
   }
 
-  document.getElementById('agent-card-name').textContent = agent.name;
-  document.getElementById('agent-card-status').textContent = agent.status;
+  document.getElementById("agent-card-name").textContent = agent.name;
+  document.getElementById("agent-card-status").textContent = agent.status;
 
   // 健康条（保留1位小数）
   const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
   const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
   const healthPercent = healthMax > 0 ? (healthCurrent / healthMax) * 100 : 0;
-  document.getElementById('agent-card-health-bar').style.width = `${healthPercent}%`;
-  document.getElementById('agent-card-health-text').textContent = `${healthCurrent}/${healthMax}`;
+  document.getElementById("agent-card-health-bar").style.width =
+    `${healthPercent}%`;
+  document.getElementById("agent-card-health-text").textContent =
+    `${healthCurrent}/${healthMax}`;
 
   // 饱腹条
   const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
   const fullnessPercent = Math.min(Math.max(fullnessValue, 0), 100);
-  document.getElementById('agent-card-fullness-bar').style.width = `${fullnessPercent}%`;
-  document.getElementById('agent-card-fullness-text').textContent = `${fullnessValue}/100`;
+  document.getElementById("agent-card-fullness-bar").style.width =
+    `${fullnessPercent}%`;
+  document.getElementById("agent-card-fullness-text").textContent =
+    `${fullnessValue}/100`;
 
   // 积分
-  document.getElementById('agent-card-points').textContent = Math.round((agent.greenPoints ?? 0) * 10) / 10;
+  document.getElementById("agent-card-points").textContent =
+    Math.round((agent.greenPoints ?? 0) * 10) / 10;
 
   // 当前动作
-  const actionDesc = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
-  document.getElementById('agent-card-action').textContent = actionDesc || '空闲';
+  const actionDesc =
+    typeof agent.currentAction === "object"
+      ? agent.currentAction?.description
+      : agent.currentAction;
+  document.getElementById("agent-card-action").textContent =
+    actionDesc || "空闲";
 
   // 定位卡片
-  const container = document.querySelector('.map-container');
+  const container = document.querySelector(".map-container");
   const containerRect = container.getBoundingClientRect();
   const cardWidth = 240;
   const cardHeight = 180;
@@ -1148,22 +1386,24 @@ function showAgentCard(agent, clickX, clickY) {
 
   card.style.left = `${left}px`;
   card.style.top = `${top}px`;
-  card.classList.remove('hidden');
+  card.classList.remove("hidden");
 }
 
 function hideAgentCard() {
-  const card = document.getElementById('agent-card');
+  const card = document.getElementById("agent-card");
   if (card) {
-    card.classList.add('hidden');
+    card.classList.add("hidden");
   }
 }
 
 function setupAgentCardListeners() {
   // 关闭按钮
-  document.getElementById('agent-card-close')?.addEventListener('click', hideAgentCard);
+  document
+    .getElementById("agent-card-close")
+    ?.addEventListener("click", hideAgentCard);
 
   // 点击卡片外部关闭（通过阻止事件冒泡实现）
-  document.getElementById('agent-card')?.addEventListener('click', (e) => {
+  document.getElementById("agent-card")?.addEventListener("click", (e) => {
     e.stopPropagation();
   });
 }
@@ -1182,11 +1422,14 @@ function handleCanvasMouseDown(e) {
   const gridX = Math.floor(mouseX / cellSize);
   const gridY = Math.floor(mouseY / cellSize);
 
-  if (state.editorTool === 'select') {
+  if (state.editorTool === "select") {
     // 尝试选中并拖拽建筑
-    const building = state.editorBuildings?.find(b =>
-      gridX >= b.x && gridX < b.x + b.width &&
-      gridY >= b.y && gridY < b.y + b.height
+    const building = state.editorBuildings?.find(
+      (b) =>
+        gridX >= b.x &&
+        gridX < b.x + b.width &&
+        gridY >= b.y &&
+        gridY < b.y + b.height,
     );
 
     if (building) {
@@ -1197,7 +1440,11 @@ function handleCanvasMouseDown(e) {
       renderBuildingListInEditor();
       renderEditorBuildingProperties();
     }
-  } else if (state.editorTool === 'ground' || state.editorTool === 'path' || state.editorTool === 'eraser') {
+  } else if (
+    state.editorTool === "ground" ||
+    state.editorTool === "path" ||
+    state.editorTool === "eraser"
+  ) {
     // 开始连续绘制
     isPainting = true;
     lastPaintedCell = { x: gridX, y: gridY };
@@ -1205,7 +1452,7 @@ function handleCanvasMouseDown(e) {
     // 保存历史记录
     saveEditHistory();
 
-    if (state.editorTool === 'eraser') {
+    if (state.editorTool === "eraser") {
       eraseAt(gridX, gridY);
     } else {
       paintTerrain(gridX, gridY, state.editorTerrain);
@@ -1218,7 +1465,9 @@ function handleCanvasMouseUp(e) {
 
   if (isDragging && dragBuilding) {
     // 拖拽结束，保存位置变更
-    console.log(`建筑 ${dragBuilding.name} 移动到 (${dragBuilding.x}, ${dragBuilding.y})`);
+    console.log(
+      `建筑 ${dragBuilding.name} 移动到 (${dragBuilding.x}, ${dragBuilding.y})`,
+    );
     saveEditHistory();
   }
 
@@ -1237,8 +1486,8 @@ function saveEditHistory() {
 
   // 保存当前状态
   const snapshot = {
-    mapData: state.mapData?.map(row => [...row]),
-    buildings: state.editorBuildings?.map(b => ({ ...b }))
+    mapData: state.mapData?.map((row) => [...row]),
+    buildings: state.editorBuildings?.map((b) => ({ ...b })),
   };
 
   editHistory.stack.push(snapshot);
@@ -1255,7 +1504,7 @@ function undo() {
   if (editHistory.index > 0) {
     editHistory.index--;
     restoreFromHistory(editHistory.stack[editHistory.index]);
-    showHint('已撤销');
+    showHint("已撤销");
   }
 }
 
@@ -1263,16 +1512,16 @@ function redo() {
   if (editHistory.index < editHistory.stack.length - 1) {
     editHistory.index++;
     restoreFromHistory(editHistory.stack[editHistory.index]);
-    showHint('已重做');
+    showHint("已重做");
   }
 }
 
 function restoreFromHistory(snapshot) {
   if (snapshot.mapData) {
-    state.mapData = snapshot.mapData.map(row => [...row]);
+    state.mapData = snapshot.mapData.map((row) => [...row]);
   }
   if (snapshot.buildings) {
-    state.editorBuildings = snapshot.buildings.map(b => ({ ...b }));
+    state.editorBuildings = snapshot.buildings.map((b) => ({ ...b }));
   }
   renderBuildingListInEditor();
   updateEditorInfo();
@@ -1283,18 +1532,20 @@ function handleEditorKeyDown(e) {
 
   // Ctrl+Z 撤销, Ctrl+Y/Ctrl+Shift+Z 重做
   if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'z' && !e.shiftKey) {
+    if (e.key === "z" && !e.shiftKey) {
       e.preventDefault();
       undo();
-    } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+    } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
       e.preventDefault();
       redo();
     }
   }
 
   // Delete 键删除选中建筑
-  if (e.key === 'Delete' && state.editorSelectedBuilding) {
-    const index = state.editorBuildings.findIndex(b => b.id === state.editorSelectedBuilding.id);
+  if (e.key === "Delete" && state.editorSelectedBuilding) {
+    const index = state.editorBuildings.findIndex(
+      (b) => b.id === state.editorSelectedBuilding.id,
+    );
     if (index !== -1) {
       saveEditHistory();
       state.editorBuildings.splice(index, 1);
@@ -1302,7 +1553,7 @@ function handleEditorKeyDown(e) {
       renderBuildingListInEditor();
       renderEditorBuildingProperties();
       updateEditorInfo();
-      showHint('建筑已删除');
+      showHint("建筑已删除");
     }
   }
 }
@@ -1318,21 +1569,22 @@ function updateUI() {
 }
 
 function updateGameTime(time) {
-  const hours = time.getHours().toString().padStart(2, '0');
-  const minutes = time.getMinutes().toString().padStart(2, '0');
-  const period = hours >= 12 ? '下午' : '上午';
+  const hours = time.getHours().toString().padStart(2, "0");
+  const minutes = time.getMinutes().toString().padStart(2, "0");
+  const period = hours >= 12 ? "下午" : "上午";
   const displayHours = hours % 12 || 12;
-  document.getElementById('game-time').textContent = `${period} ${displayHours}:${minutes}`;
+  document.getElementById("game-time").textContent =
+    `${period} ${displayHours}:${minutes}`;
 }
 
 function updateTickCount(count) {
-  const tickCount = typeof count === 'number' ? count : 0;
-  document.getElementById('tick-count').textContent = `Tick: ${tickCount}`;
+  const tickCount = typeof count === "number" ? count : 0;
+  document.getElementById("tick-count").textContent = `Tick: ${tickCount}`;
 }
 
 function updateTownHealth(health) {
-  const healthFill = document.getElementById('town-health-fill');
-  const healthText = document.getElementById('town-health-text');
+  const healthFill = document.getElementById("town-health-fill");
+  const healthText = document.getElementById("town-health-text");
   if (healthFill && health) {
     healthFill.style.width = `${(health.current / health.max) * 100}%`;
   }
@@ -1344,25 +1596,25 @@ function updateTownHealth(health) {
 }
 
 function updateSimulationStatus() {
-  const statusEl = document.getElementById('simulation-status');
-  const btnStart = document.getElementById('btn-start');
-  const btnStop = document.getElementById('btn-stop');
-  
+  const statusEl = document.getElementById("simulation-status");
+  const btnStart = document.getElementById("btn-start");
+  const btnStop = document.getElementById("btn-stop");
+
   if (state.simulationRunning) {
-    statusEl.textContent = '运行中';
-    statusEl.className = 'status running';
+    statusEl.textContent = "运行中";
+    statusEl.className = "status running";
     btnStart.disabled = true;
     btnStop.disabled = false;
   } else {
-    statusEl.textContent = '已停止';
-    statusEl.className = 'status stopped';
+    statusEl.textContent = "已停止";
+    statusEl.className = "status stopped";
     btnStart.disabled = false;
     btnStop.disabled = true;
   }
 }
 
 function renderAgentList() {
-  const container = document.getElementById('agent-list');
+  const container = document.getElementById("agent-list");
   const worldState = state.world.getWorldState();
 
   if (worldState.agents.size === 0) {
@@ -1370,56 +1622,67 @@ function renderAgentList() {
     return;
   }
 
-  const html = Array.from(worldState.agents.values()).map(agent => {
-    const actionDesc = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
-    const portraitPath = getCharacterPortrait(agent.agentId);
-    const portrait = portraitPath ? imageLoader.getImage(portraitPath) : null;
+  const html = Array.from(worldState.agents.values())
+    .map((agent) => {
+      const actionDesc =
+        typeof agent.currentAction === "object"
+          ? agent.currentAction?.description
+          : agent.currentAction;
+      const portraitPath = getCharacterPortrait(agent.agentId);
+      const portrait = portraitPath ? imageLoader.getImage(portraitPath) : null;
 
-    // 计算警告图标
-    const healthPercent = agent.health ? (agent.health.current / agent.health.max) : 1;
-    const fullnessPercent = (agent.fullness ?? 100) / 100;
-    let warningIcons = '';
-    if (healthPercent < 0.3) {
-      warningIcons += '<span class="warning-icon health-critical" title="健康危急">❤️</span>';
-    } else if (healthPercent < 0.5) {
-      warningIcons += '<span class="warning-icon health-low" title="健康较低">💔</span>';
-    }
-    if (fullnessPercent < 0.2) {
-      warningIcons += '<span class="warning-icon fullness-critical" title="极度饥饿">🍖</span>';
-    } else if (fullnessPercent < 0.4) {
-      warningIcons += '<span class="warning-icon fullness-low" title="饥饿">🍗</span>';
-    }
+      // 计算警告图标
+      const healthPercent = agent.health
+        ? agent.health.current / agent.health.max
+        : 1;
+      const fullnessPercent = (agent.fullness ?? 100) / 100;
+      let warningIcons = "";
+      if (healthPercent < 0.3) {
+        warningIcons +=
+          '<span class="warning-icon health-critical" title="健康危急">❤️</span>';
+      } else if (healthPercent < 0.5) {
+        warningIcons +=
+          '<span class="warning-icon health-low" title="健康较低">💔</span>';
+      }
+      if (fullnessPercent < 0.2) {
+        warningIcons +=
+          '<span class="warning-icon fullness-critical" title="极度饥饿">🍖</span>';
+      } else if (fullnessPercent < 0.4) {
+        warningIcons +=
+          '<span class="warning-icon fullness-low" title="饥饿">🍗</span>';
+      }
 
-    // 保留1位小数
-    const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
-    const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
-    const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
-    const greenPoints = Math.round((agent.greenPoints ?? 0) * 10) / 10;
+      // 保留1位小数
+      const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
+      const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
+      const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
+      const greenPoints = Math.round((agent.greenPoints ?? 0) * 10) / 10;
 
-    return `
-      <div class="agent-item ${healthPercent < 0.3 ? 'agent-critical' : ''}" data-agent-id="${agent.agentId}">
+      return `
+      <div class="agent-item ${healthPercent < 0.3 ? "agent-critical" : ""}" data-agent-id="${agent.agentId}">
         <div class="agent-avatar">
-          ${portrait ? `<img src="${portraitPath}" alt="${agent.name}" onerror="this.style.display='none';this.parentElement.textContent='🤖'">` : '🤖'}
+          ${portrait ? `<img src="${portraitPath}" alt="${agent.name}" onerror="this.style.display='none';this.parentElement.textContent='🤖'">` : "🤖"}
           <span class="status-dot ${agent.status}"></span>
         </div>
         <div class="agent-info">
           <div class="agent-name">${agent.name} ${warningIcons}</div>
-          <div class="agent-status">${agent.status} · ${actionDesc || '空闲'}</div>
+          <div class="agent-status">${agent.status} · ${actionDesc || "空闲"}</div>
           <div class="agent-position">(${agent.position.x}, ${agent.position.y})</div>
           <div class="agent-stats">
-            <span class="stat ${healthPercent < 0.3 ? 'stat-critical' : healthPercent < 0.5 ? 'stat-warning' : ''}" title="健康">❤️ ${healthCurrent}/${healthMax}</span>
+            <span class="stat ${healthPercent < 0.3 ? "stat-critical" : healthPercent < 0.5 ? "stat-warning" : ""}" title="健康">❤️ ${healthCurrent}/${healthMax}</span>
             <span class="stat" title="绿色积分">🌿 ${greenPoints}</span>
-            <span class="stat ${fullnessPercent < 0.2 ? 'stat-critical' : fullnessPercent < 0.4 ? 'stat-warning' : ''}" title="饱腹">🍖 ${fullnessValue}/100</span>
+            <span class="stat ${fullnessPercent < 0.2 ? "stat-critical" : fullnessPercent < 0.4 ? "stat-warning" : ""}" title="饱腹">🍖 ${fullnessValue}/100</span>
           </div>
         </div>
       </div>
     `;
-  }).join('');
+    })
+    .join("");
 
   container.innerHTML = html;
 
-  container.querySelectorAll('.agent-item').forEach(item => {
-    item.addEventListener('click', () => {
+  container.querySelectorAll(".agent-item").forEach((item) => {
+    item.addEventListener("click", () => {
       showAgentDetails(item.dataset.agentId);
     });
   });
@@ -1432,95 +1695,118 @@ function showAgentDetails(agentId) {
   const memoryData = agent.memory.exportData();
   const portraitPath = getCharacterPortrait(agent.agentId);
 
-  document.getElementById('modal-agent-name').textContent = agent.name;
-  document.getElementById('modal-agent-id').textContent = agent.id;
-  document.getElementById('modal-agent-age').textContent = `${agent.config.age}岁`;
-  document.getElementById('modal-agent-traits').textContent = agent.config.traits;
-  document.getElementById('modal-agent-position').textContent = `(${agent.position.x}, ${agent.position.y})`;
-  document.getElementById('modal-agent-status').textContent = agent.status;
+  document.getElementById("modal-agent-name").textContent = agent.name;
+  document.getElementById("modal-agent-id").textContent = agent.id;
+  document.getElementById("modal-agent-age").textContent =
+    `${agent.config.age}岁`;
+  document.getElementById("modal-agent-traits").textContent =
+    agent.config.traits;
+  document.getElementById("modal-agent-position").textContent =
+    `(${agent.position.x}, ${agent.position.y})`;
+  document.getElementById("modal-agent-status").textContent = agent.status;
 
   // 显示生存属性 - 条形图（保留1位小数）
   const healthCurrent = Math.round((agent.health?.current ?? 0) * 10) / 10;
   const healthMax = Math.round((agent.health?.max ?? 100) * 10) / 10;
-  const healthEl = document.getElementById('modal-agent-health');
-  const healthBar = document.getElementById('modal-agent-health-bar');
+  const healthEl = document.getElementById("modal-agent-health");
+  const healthBar = document.getElementById("modal-agent-health-bar");
   if (healthEl) healthEl.textContent = `${healthCurrent}/${healthMax}`;
   if (healthBar) {
     const healthPercent = healthMax > 0 ? (healthCurrent / healthMax) * 100 : 0;
     healthBar.style.width = `${healthPercent}%`;
   }
 
-  const greenPointsEl = document.getElementById('modal-agent-greenpoints');
-  if (greenPointsEl) greenPointsEl.textContent = Math.round((agent.greenPoints ?? 0) * 10) / 10;
+  const greenPointsEl = document.getElementById("modal-agent-greenpoints");
+  if (greenPointsEl)
+    greenPointsEl.textContent = Math.round((agent.greenPoints ?? 0) * 10) / 10;
 
   const fullnessValue = Math.round((agent.fullness ?? 0) * 10) / 10;
-  const fullnessEl = document.getElementById('modal-agent-fullness');
-  const fullnessBar = document.getElementById('modal-agent-fullness-bar');
+  const fullnessEl = document.getElementById("modal-agent-fullness");
+  const fullnessBar = document.getElementById("modal-agent-fullness-bar");
   if (fullnessEl) fullnessEl.textContent = `${fullnessValue}/100`;
   if (fullnessBar) {
     const fullnessPercent = Math.min(Math.max(fullnessValue, 0), 100);
     fullnessBar.style.width = `${fullnessPercent}%`;
   }
-  const actionText = typeof agent.currentAction === 'object' ? agent.currentAction?.description : agent.currentAction;
-  document.getElementById('modal-agent-action').textContent = actionText || '无';
-  document.getElementById('modal-agent-background').textContent = agent.config.background;
+  const actionText =
+    typeof agent.currentAction === "object"
+      ? agent.currentAction?.description
+      : agent.currentAction;
+  document.getElementById("modal-agent-action").textContent =
+    actionText || "无";
+  document.getElementById("modal-agent-background").textContent =
+    agent.config.background;
 
   // 添加头像
-  const modalBody = document.querySelector('#agent-modal .modal-body');
-  const existingPortrait = modalBody.querySelector('.modal-portrait');
+  const modalBody = document.querySelector("#agent-modal .modal-body");
+  const existingPortrait = modalBody.querySelector(".modal-portrait");
   if (existingPortrait) existingPortrait.remove();
-  
+
   if (portraitPath) {
-    const portraitImg = document.createElement('img');
+    const portraitImg = document.createElement("img");
     portraitImg.src = portraitPath;
-    portraitImg.className = 'modal-portrait';
-    portraitImg.style.width = '80px';
-    portraitImg.style.height = '80px';
-    portraitImg.style.borderRadius = '50%';
-    portraitImg.style.marginBottom = '15px';
-    portraitImg.onerror = () => portraitImg.style.display = 'none';
+    portraitImg.className = "modal-portrait";
+    portraitImg.style.width = "80px";
+    portraitImg.style.height = "80px";
+    portraitImg.style.borderRadius = "50%";
+    portraitImg.style.marginBottom = "15px";
+    portraitImg.onerror = () => (portraitImg.style.display = "none");
     modalBody.insertBefore(portraitImg, modalBody.firstChild);
   }
 
-  document.getElementById('modal-agent-goals').innerHTML = agent.config.goals.map(goal => `<li>${goal}</li>`).join('');
+  document.getElementById("modal-agent-goals").innerHTML = agent.config.goals
+    .map((goal) => `<li>${goal}</li>`)
+    .join("");
 
   // 记忆
-  const memoriesDiv = document.getElementById('modal-memories');
+  const memoriesDiv = document.getElementById("modal-memories");
   if (memoryData.memories.length > 0) {
-    memoriesDiv.innerHTML = memoryData.memories.slice(-20).reverse().map(m => `
+    memoriesDiv.innerHTML = memoryData.memories
+      .slice(-20)
+      .reverse()
+      .map(
+        (m) => `
       <div class="memory-item">
         <div class="memory-time">${new Date(m.timestamp).toLocaleString()}</div>
         <div class="memory-content">${m.content}</div>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   } else {
     memoriesDiv.innerHTML = '<div class="empty-state">暂无记忆</div>';
   }
 
   // 反思
-  const reflectionsDiv = document.getElementById('modal-reflections');
+  const reflectionsDiv = document.getElementById("modal-reflections");
   if (memoryData.reflections.length > 0) {
-    reflectionsDiv.innerHTML = memoryData.reflections.slice(-10).reverse().map(r => `
+    reflectionsDiv.innerHTML = memoryData.reflections
+      .slice(-10)
+      .reverse()
+      .map(
+        (r) => `
       <div class="memory-item reflection">
         <div class="memory-time">${new Date(r.timestamp).toLocaleString()}</div>
         <div class="memory-content">${r.content}</div>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   } else {
     reflectionsDiv.innerHTML = '<div class="empty-state">暂无反思</div>';
   }
 
-  showModal('agent-modal');
+  showModal("agent-modal");
 }
 
 // ========== 事件日志 ==========
 function addEvent(event) {
-  const container = document.getElementById('event-log');
-  const emptyState = container.querySelector('.empty-state');
+  const container = document.getElementById("event-log");
+  const emptyState = container.querySelector(".empty-state");
   if (emptyState) emptyState.remove();
 
-  const eventDiv = document.createElement('div');
-  eventDiv.className = `event-item ${event.type === 'world' ? 'world-event' : ''} ${event.type === 'dialogue' ? 'dialogue' : ''}`;
+  const eventDiv = document.createElement("div");
+  eventDiv.className = `event-item ${event.type === "world" ? "world-event" : ""} ${event.type === "dialogue" ? "dialogue" : ""}`;
 
   let description = event.description;
   if (event.dialogue) {
@@ -1545,10 +1831,10 @@ function addEvent(event) {
 // ========== Agent 管理 ==========
 async function addDefaultAgents() {
   const positions = [
-    { name: 'xiaoming', x: 5, y: 5 },
-    { name: 'xiaohong', x: 45, y: 35 },
-    { name: 'xiaomi', x: 5, y: 35 },
-    { name: 'xiaodong', x: 45, y: 5 }
+    { name: "xiaoming", x: 5, y: 5 },
+    { name: "xiaohong", x: 45, y: 35 },
+    { name: "xiaomi", x: 5, y: 35 },
+    { name: "xiaodong", x: 45, y: 5 },
   ];
 
   for (const pos of positions) {
@@ -1561,10 +1847,10 @@ async function addDefaultAgents() {
 
 async function handleAddAgent(e) {
   e.preventDefault();
-  const name = document.getElementById('new-agent-name').value;
-  const age = parseInt(document.getElementById('new-agent-age').value);
-  const traits = document.getElementById('new-agent-traits').value;
-  const background = document.getElementById('new-agent-background').value;
+  const name = document.getElementById("new-agent-name").value;
+  const age = parseInt(document.getElementById("new-agent-age").value);
+  const traits = document.getElementById("new-agent-traits").value;
+  const background = document.getElementById("new-agent-background").value;
 
   const template = {
     id: `agent_${Date.now()}`,
@@ -1572,52 +1858,52 @@ async function handleAddAgent(e) {
     age,
     traits,
     background,
-    goals: ['探索世界', '结交朋友']
+    goals: ["探索世界", "结交朋友"],
   };
 
   await state.world.addAgent(template);
-  hideModal('add-agent-modal');
+  hideModal("add-agent-modal");
   e.target.reset();
 }
 
 function handleTriggerEvent(e) {
   e.preventDefault();
-  const type = document.getElementById('event-type').value;
-  const description = document.getElementById('event-description').value;
+  const type = document.getElementById("event-type").value;
+  const description = document.getElementById("event-description").value;
   state.world.triggerEvent(type, description);
-  hideModal('event-modal');
+  hideModal("event-modal");
   e.target.reset();
 }
 
 // ========== 工具函数 ==========
 function showTooltip(x, y, data) {
-  const tooltip = document.getElementById('map-tooltip');
+  const tooltip = document.getElementById("map-tooltip");
   if (!tooltip) return;
 
-  let content = '';
-  if (data.type === 'agent') {
+  let content = "";
+  if (data.type === "agent") {
     content = `<strong>${data.data.name}</strong><br>状态：${data.data.status}<br>位置：(${data.data.position.x}, ${data.data.position.y})`;
-  } else if (data.type === 'object') {
+  } else if (data.type === "object") {
     content = `<strong>${data.data.name}</strong><br>类型：${data.data.type}<br>${data.data.description}`;
   }
 
   tooltip.innerHTML = content;
   tooltip.style.left = `${x + 15}px`;
   tooltip.style.top = `${y + 15}px`;
-  tooltip.classList.remove('hidden');
+  tooltip.classList.remove("hidden");
 }
 
 function hideTooltip() {
-  const tooltip = document.getElementById('map-tooltip');
-  if (tooltip) tooltip.classList.add('hidden');
+  const tooltip = document.getElementById("map-tooltip");
+  if (tooltip) tooltip.classList.add("hidden");
 }
 
 function showModal(modalId) {
-  document.getElementById(modalId).classList.remove('hidden');
+  document.getElementById(modalId).classList.remove("hidden");
 }
 
 function hideModal(modalId) {
-  document.getElementById(modalId).classList.add('hidden');
+  document.getElementById(modalId).classList.add("hidden");
 }
 
 // ========== 编辑模式功能 ==========
@@ -1642,21 +1928,30 @@ function initMapData() {
     const row = [];
     for (let x = 0; x < CONFIG.WORLD_WIDTH; x++) {
       // 默认草地，某些区域设为路径
-      row.push('grass');
+      row.push("grass");
     }
     state.mapData.push(row);
   }
 
   // 设置一些默认路径
   const pathPoints = [
-    { x: 10, y: 10 }, { x: 11, y: 10 }, { x: 12, y: 10 }, { x: 13, y: 10 },
-    { x: 20, y: 5 }, { x: 20, y: 6 }, { x: 20, y: 7 }, { x: 20, y: 8 },
-    { x: 20, y: 9 }, { x: 20, y: 10 }, { x: 20, y: 11 }, { x: 20, y: 12 },
+    { x: 10, y: 10 },
+    { x: 11, y: 10 },
+    { x: 12, y: 10 },
+    { x: 13, y: 10 },
+    { x: 20, y: 5 },
+    { x: 20, y: 6 },
+    { x: 20, y: 7 },
+    { x: 20, y: 8 },
+    { x: 20, y: 9 },
+    { x: 20, y: 10 },
+    { x: 20, y: 11 },
+    { x: 20, y: 12 },
   ];
 
   for (const p of pathPoints) {
     if (p.x < CONFIG.WORLD_WIDTH && p.y < CONFIG.WORLD_HEIGHT) {
-      state.mapData[p.y][p.x] = 'path';
+      state.mapData[p.y][p.x] = "path";
     }
   }
 }
@@ -1666,105 +1961,132 @@ function loadBuildingsFromWorld() {
   state.editorBuildings = [];
 
   if (!state.world) {
-    console.warn('World 未初始化，无法加载建筑');
+    console.warn("World 未初始化，无法加载建筑");
     return;
   }
 
   try {
     const worldState = state.world.getWorldState();
     if (!worldState || !worldState.objects) {
-      console.warn('World 数据为空');
+      console.warn("World 数据为空");
       return;
     }
 
     for (const obj of worldState.objects.values()) {
       if (!obj) continue;
       state.editorBuildings.push({
-        id: obj.id || 'unknown',
-        name: obj.name || '未命名',
-        type: obj.type || 'building',
+        id: obj.id || "unknown",
+        name: obj.name || "未命名",
+        type: obj.type || "building",
         x: obj.position?.x || 0,
         y: obj.position?.y || 0,
         width: 3, // 默认3x3
         height: 3,
         obstacle: true,
-        description: obj.description || '',
-        image: null
+        description: obj.description || "",
+        image: null,
       });
     }
 
     console.log(`从世界加载了 ${state.editorBuildings.length} 个建筑`);
   } catch (err) {
-    console.error('加载建筑失败:', err);
+    console.error("加载建筑失败:", err);
   }
 }
 
 function setupEditorListeners() {
   // 模式切换按钮
-  const modeToggle = document.getElementById('btn-mode-toggle');
-  modeToggle?.addEventListener('click', toggleEditMode);
+  const modeToggle = document.getElementById("btn-mode-toggle");
+  modeToggle?.addEventListener("click", toggleEditMode);
 
   // 工具按钮
-  document.querySelectorAll('.toolbar-btn[data-tool]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.toolbar-btn[data-tool]').forEach(b => b.classList.remove('active'));
-      e.target.classList.add('active');
+  document.querySelectorAll(".toolbar-btn[data-tool]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      document
+        .querySelectorAll(".toolbar-btn[data-tool]")
+        .forEach((b) => b.classList.remove("active"));
+      e.target.classList.add("active");
       state.editorTool = e.target.dataset.tool;
     });
   });
 
   // 地形按钮
-  document.querySelectorAll('.toolbar-btn[data-terrain]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.toolbar-btn[data-terrain]').forEach(b => b.classList.remove('active'));
-      e.target.classList.add('active');
+  document.querySelectorAll(".toolbar-btn[data-terrain]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      document
+        .querySelectorAll(".toolbar-btn[data-terrain]")
+        .forEach((b) => b.classList.remove("active"));
+      e.target.classList.add("active");
       state.editorTerrain = e.target.dataset.terrain;
     });
   });
 
   // 新建建筑按钮
-  document.getElementById('btn-editor-add-building')?.addEventListener('click', showEditBuildingModalForNew);
+  document
+    .getElementById("btn-editor-add-building")
+    ?.addEventListener("click", showEditBuildingModalForNew);
 
   // 保存/加载/清空
-  document.getElementById('btn-save-map')?.addEventListener('click', saveMapData);
-  document.getElementById('btn-load-map')?.addEventListener('click', () => {
-    document.getElementById('map-file-input')?.click();
+  document
+    .getElementById("btn-save-map")
+    ?.addEventListener("click", saveMapData);
+  document.getElementById("btn-load-map")?.addEventListener("click", () => {
+    document.getElementById("map-file-input")?.click();
   });
-  document.getElementById('map-file-input')?.addEventListener('change', loadMapData);
-  document.getElementById('btn-clear-map')?.addEventListener('click', clearMap);
+  document
+    .getElementById("map-file-input")
+    ?.addEventListener("change", loadMapData);
+  document.getElementById("btn-clear-map")?.addEventListener("click", clearMap);
 
   // 建筑编辑弹窗
-  document.getElementById('btn-close-edit-building')?.addEventListener('click', () => hideModal('edit-building-modal'));
-  document.getElementById('btn-cancel-edit-building')?.addEventListener('click', () => hideModal('edit-building-modal'));
-  document.getElementById('edit-building-form')?.addEventListener('submit', handleSaveBuilding);
-  document.getElementById('btn-delete-building')?.addEventListener('click', handleDeleteBuilding);
+  document
+    .getElementById("btn-close-edit-building")
+    ?.addEventListener("click", () => hideModal("edit-building-modal"));
+  document
+    .getElementById("btn-cancel-edit-building")
+    ?.addEventListener("click", () => hideModal("edit-building-modal"));
+  document
+    .getElementById("edit-building-form")
+    ?.addEventListener("submit", handleSaveBuilding);
+  document
+    .getElementById("btn-delete-building")
+    ?.addEventListener("click", handleDeleteBuilding);
 
   // 图片上传
-  const uploadArea = document.getElementById('edit-image-upload-area');
-  uploadArea?.addEventListener('click', () => document.getElementById('edit-building-image')?.click());
-  uploadArea?.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
-  uploadArea?.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-  uploadArea?.addEventListener('drop', handleBuildingImageDrop);
-  document.getElementById('edit-building-image')?.addEventListener('change', handleBuildingImageSelect);
+  const uploadArea = document.getElementById("edit-image-upload-area");
+  uploadArea?.addEventListener("click", () =>
+    document.getElementById("edit-building-image")?.click(),
+  );
+  uploadArea?.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    uploadArea.classList.add("dragover");
+  });
+  uploadArea?.addEventListener("dragleave", () =>
+    uploadArea.classList.remove("dragover"),
+  );
+  uploadArea?.addEventListener("drop", handleBuildingImageDrop);
+  document
+    .getElementById("edit-building-image")
+    ?.addEventListener("change", handleBuildingImageSelect);
 }
 
 function toggleEditMode() {
   state.isEditMode = !state.isEditMode;
 
-  const modeToggle = document.getElementById('btn-mode-toggle');
-  const editorToolbar = document.getElementById('editor-toolbar');
-  const simSidebar = document.getElementById('simulation-sidebar');
-  const editorSidebar = document.getElementById('editor-sidebar');
+  const modeToggle = document.getElementById("btn-mode-toggle");
+  const editorToolbar = document.getElementById("editor-toolbar");
+  const simSidebar = document.getElementById("simulation-sidebar");
+  const editorSidebar = document.getElementById("editor-sidebar");
 
-  console.log('切换模式:', state.isEditMode ? '编辑' : '模拟');
+  console.log("切换模式:", state.isEditMode ? "编辑" : "模拟");
 
   if (state.isEditMode) {
     // 切换到编辑模式
-    if (modeToggle) modeToggle.textContent = '🏗️ 编辑模式';
-    if (modeToggle) modeToggle.classList.add('active');
-    if (editorToolbar) editorToolbar.classList.remove('hidden');
-    if (simSidebar) simSidebar.classList.add('hidden');
-    if (editorSidebar) editorSidebar.classList.remove('hidden');
+    if (modeToggle) modeToggle.textContent = "🏗️ 编辑模式";
+    if (modeToggle) modeToggle.classList.add("active");
+    if (editorToolbar) editorToolbar.classList.remove("hidden");
+    if (simSidebar) simSidebar.classList.add("hidden");
+    if (editorSidebar) editorSidebar.classList.remove("hidden");
 
     // 暂停模拟
     if (state.world) state.world.stop();
@@ -1773,30 +2095,30 @@ function toggleEditMode() {
     updateEditorInfo();
     renderBuildingListInEditor();
 
-    showHint('已进入编辑模式，点击工具栏选择工具');
+    showHint("已进入编辑模式，点击工具栏选择工具");
   } else {
     // 切换到模拟模式
-    if (modeToggle) modeToggle.textContent = '🎮 模拟模式';
-    if (modeToggle) modeToggle.classList.remove('active');
-    if (editorToolbar) editorToolbar.classList.add('hidden');
-    if (simSidebar) simSidebar.classList.remove('hidden');
-    if (editorSidebar) editorSidebar.classList.add('hidden');
+    if (modeToggle) modeToggle.textContent = "🎮 模拟模式";
+    if (modeToggle) modeToggle.classList.remove("active");
+    if (editorToolbar) editorToolbar.classList.add("hidden");
+    if (simSidebar) simSidebar.classList.remove("hidden");
+    if (editorSidebar) editorSidebar.classList.add("hidden");
 
     // 应用更改到 world
     applyChangesToWorld();
 
-    showHint('已返回模拟模式，更改已应用');
+    showHint("已返回模拟模式，更改已应用");
   }
 }
 
 function applyChangesToWorld() {
   // 将编辑的建筑同步回 world
   if (!state.world || !state.editorBuildings) {
-    console.warn('World或建筑数据不存在，无法应用更改');
+    console.warn("World或建筑数据不存在，无法应用更改");
     return;
   }
 
-  console.log('应用地图更改到世界...');
+  console.log("应用地图更改到世界...");
 
   // 清空现有 objects
   state.world.objects.clear();
@@ -1806,13 +2128,13 @@ function applyChangesToWorld() {
     const buildingObj = {
       id: b.id,
       name: b.name,
-      type: b.type || 'building',
+      type: b.type || "building",
       position: { x: b.x, y: b.y, area: b.name },
       interactable: true,
-      description: b.description || '',
+      description: b.description || "",
       width: b.width || 3,
       height: b.height || 3,
-      obstacle: b.obstacle !== false // 默认为true
+      obstacle: b.obstacle !== false, // 默认为true
     };
     state.world.objects.set(b.id, buildingObj);
     console.log(`  添加建筑: ${b.name} (${b.x}, ${b.y})`);
@@ -1833,19 +2155,24 @@ function handleCanvasClickForEditor(e) {
   const gridX = Math.floor(x / cellSize);
   const gridY = Math.floor(y / cellSize);
 
-  if (gridX < 0 || gridX >= CONFIG.WORLD_WIDTH || gridY < 0 || gridY >= CONFIG.WORLD_HEIGHT) {
+  if (
+    gridX < 0 ||
+    gridX >= CONFIG.WORLD_WIDTH ||
+    gridY < 0 ||
+    gridY >= CONFIG.WORLD_HEIGHT
+  ) {
     return;
   }
 
   switch (state.editorTool) {
-    case 'select':
+    case "select":
       selectBuildingAt(gridX, gridY);
       break;
-    case 'ground':
-    case 'path':
+    case "ground":
+    case "path":
       paintTerrain(gridX, gridY, state.editorTerrain);
       break;
-    case 'eraser':
+    case "eraser":
       eraseAt(gridX, gridY);
       break;
   }
@@ -1855,9 +2182,8 @@ function handleCanvasClickForEditor(e) {
 
 function selectBuildingAt(x, y) {
   const buildings = state.editorBuildings || [];
-  const building = buildings.find(b =>
-    x >= b.x && x < b.x + b.width &&
-    y >= b.y && y < b.y + b.height
+  const building = buildings.find(
+    (b) => x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height,
   );
 
   state.editorSelectedBuilding = building || null;
@@ -1873,9 +2199,8 @@ function paintTerrain(x, y, terrain) {
 function eraseAt(x, y) {
   // 删除建筑
   const buildings = state.editorBuildings || [];
-  const index = buildings.findIndex(b =>
-    x >= b.x && x < b.x + b.width &&
-    y >= b.y && y < b.y + b.height
+  const index = buildings.findIndex(
+    (b) => x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height,
   );
 
   if (index !== -1) {
@@ -1889,54 +2214,57 @@ function eraseAt(x, y) {
 function showEditBuildingModalForNew() {
   state.editorSelectedBuilding = null;
 
-  const form = document.getElementById('edit-building-form');
-  const preview = document.getElementById('edit-image-preview');
-  const placeholder = document.getElementById('edit-upload-placeholder');
-  const originalIdInput = document.getElementById('edit-building-original-id');
+  const form = document.getElementById("edit-building-form");
+  const preview = document.getElementById("edit-image-preview");
+  const placeholder = document.getElementById("edit-upload-placeholder");
+  const originalIdInput = document.getElementById("edit-building-original-id");
 
   if (form) form.reset();
-  if (preview) preview.classList.add('hidden');
-  if (placeholder) placeholder.classList.remove('hidden');
-  if (originalIdInput) originalIdInput.value = '';
+  if (preview) preview.classList.add("hidden");
+  if (placeholder) placeholder.classList.remove("hidden");
+  if (originalIdInput) originalIdInput.value = "";
 
-  showModal('edit-building-modal');
+  showModal("edit-building-modal");
 }
 
 function showEditBuildingModalForEdit(building) {
   state.editorSelectedBuilding = building;
-  document.getElementById('edit-building-original-id').value = building.id;
-  document.getElementById('edit-building-id').value = building.id;
-  document.getElementById('edit-building-name').value = building.name;
-  document.getElementById('edit-building-width').value = building.width;
-  document.getElementById('edit-building-height').value = building.height;
-  document.getElementById('edit-building-obstacle').checked = building.obstacle;
-  document.getElementById('edit-building-description').value = building.description || '';
+  document.getElementById("edit-building-original-id").value = building.id;
+  document.getElementById("edit-building-id").value = building.id;
+  document.getElementById("edit-building-name").value = building.name;
+  document.getElementById("edit-building-width").value = building.width;
+  document.getElementById("edit-building-height").value = building.height;
+  document.getElementById("edit-building-obstacle").checked = building.obstacle;
+  document.getElementById("edit-building-description").value =
+    building.description || "";
 
   if (building.image) {
-    document.getElementById('edit-image-preview').src = building.image;
-    document.getElementById('edit-image-preview').classList.remove('hidden');
-    document.getElementById('edit-upload-placeholder').classList.add('hidden');
+    document.getElementById("edit-image-preview").src = building.image;
+    document.getElementById("edit-image-preview").classList.remove("hidden");
+    document.getElementById("edit-upload-placeholder").classList.add("hidden");
   } else {
-    document.getElementById('edit-image-preview').classList.add('hidden');
-    document.getElementById('edit-upload-placeholder').classList.remove('hidden');
+    document.getElementById("edit-image-preview").classList.add("hidden");
+    document
+      .getElementById("edit-upload-placeholder")
+      .classList.remove("hidden");
   }
 
-  showModal('edit-building-modal');
+  showModal("edit-building-modal");
 }
 
 function handleSaveBuilding(e) {
   e.preventDefault();
 
-  const idInput = document.getElementById('edit-building-id');
-  const nameInput = document.getElementById('edit-building-name');
-  const widthInput = document.getElementById('edit-building-width');
-  const heightInput = document.getElementById('edit-building-height');
-  const obstacleInput = document.getElementById('edit-building-obstacle');
-  const descInput = document.getElementById('edit-building-description');
-  const originalIdInput = document.getElementById('edit-building-original-id');
+  const idInput = document.getElementById("edit-building-id");
+  const nameInput = document.getElementById("edit-building-name");
+  const widthInput = document.getElementById("edit-building-width");
+  const heightInput = document.getElementById("edit-building-height");
+  const obstacleInput = document.getElementById("edit-building-obstacle");
+  const descInput = document.getElementById("edit-building-description");
+  const originalIdInput = document.getElementById("edit-building-original-id");
 
   if (!idInput || !nameInput) {
-    console.error('表单元素未找到');
+    console.error("表单元素未找到");
     return;
   }
 
@@ -1945,11 +2273,11 @@ function handleSaveBuilding(e) {
   const width = parseInt(widthInput?.value) || 3;
   const height = parseInt(heightInput?.value) || 3;
   const obstacle = obstacleInput?.checked ?? true;
-  const description = descInput?.value.trim() || '';
-  const originalId = originalIdInput?.value || '';
+  const description = descInput?.value.trim() || "";
+  const originalId = originalIdInput?.value || "";
 
   if (!id || !name) {
-    alert('请填写 ID 和名称');
+    alert("请填写 ID 和名称");
     return;
   }
 
@@ -1957,30 +2285,35 @@ function handleSaveBuilding(e) {
   if (!state.editorBuildings) state.editorBuildings = [];
 
   // 检查ID重复
-  const exists = state.editorBuildings.some(b => b.id === id && b.id !== originalId);
+  const exists = state.editorBuildings.some(
+    (b) => b.id === id && b.id !== originalId,
+  );
   if (exists) {
-    alert('建筑ID已存在');
+    alert("建筑ID已存在");
     return;
   }
 
   const buildingData = {
     id,
     name,
-    type: 'building',
+    type: "building",
     width,
     height,
     obstacle,
     description,
     image: state.editorSelectedBuilding?.image || null,
     x: state.editorSelectedBuilding?.x || 10,
-    y: state.editorSelectedBuilding?.y || 10
+    y: state.editorSelectedBuilding?.y || 10,
   };
 
   if (originalId) {
     // 更新现有建筑
-    const index = state.editorBuildings.findIndex(b => b.id === originalId);
+    const index = state.editorBuildings.findIndex((b) => b.id === originalId);
     if (index !== -1) {
-      state.editorBuildings[index] = { ...state.editorBuildings[index], ...buildingData };
+      state.editorBuildings[index] = {
+        ...state.editorBuildings[index],
+        ...buildingData,
+      };
     }
   } else {
     // 新建建筑 - 保存历史
@@ -1988,44 +2321,44 @@ function handleSaveBuilding(e) {
     state.editorBuildings.push(buildingData);
   }
 
-  hideModal('edit-building-modal');
+  hideModal("edit-building-modal");
   renderBuildingListInEditor();
   updateEditorInfo();
   showHint(`建筑 "${name}" 已保存`);
 }
 
 function handleDeleteBuilding() {
-  const originalIdInput = document.getElementById('edit-building-original-id');
+  const originalIdInput = document.getElementById("edit-building-original-id");
   const originalId = originalIdInput?.value;
 
   if (!originalId) {
-    hideModal('edit-building-modal');
+    hideModal("edit-building-modal");
     return;
   }
 
   if (!state.editorBuildings) {
-    hideModal('edit-building-modal');
+    hideModal("edit-building-modal");
     return;
   }
 
-  if (confirm('确定要删除这个建筑吗？')) {
-    const index = state.editorBuildings.findIndex(b => b.id === originalId);
+  if (confirm("确定要删除这个建筑吗？")) {
+    const index = state.editorBuildings.findIndex((b) => b.id === originalId);
     if (index !== -1) {
       state.editorBuildings.splice(index, 1);
       state.editorSelectedBuilding = null;
-      hideModal('edit-building-modal');
+      hideModal("edit-building-modal");
       renderBuildingListInEditor();
       renderEditorBuildingProperties();
       updateEditorInfo();
-      showHint('建筑已删除');
+      showHint("建筑已删除");
     }
   }
 }
 
 function handleBuildingImageDrop(e) {
   e.preventDefault();
-  const uploadArea = document.getElementById('edit-image-upload-area');
-  uploadArea.classList.remove('dragover');
+  const uploadArea = document.getElementById("edit-image-upload-area");
+  uploadArea.classList.remove("dragover");
 
   const file = e.dataTransfer.files[0];
   if (file) processBuildingImage(file);
@@ -2037,17 +2370,17 @@ function handleBuildingImageSelect(e) {
 }
 
 function processBuildingImage(file) {
-  if (!file.type.startsWith('image/')) {
-    alert('请选择图片文件');
+  if (!file.type.startsWith("image/")) {
+    alert("请选择图片文件");
     return;
   }
 
   const reader = new FileReader();
   reader.onload = (e) => {
-    const img = document.getElementById('edit-image-preview');
+    const img = document.getElementById("edit-image-preview");
     img.src = e.target.result;
-    img.classList.remove('hidden');
-    document.getElementById('edit-upload-placeholder').classList.add('hidden');
+    img.classList.remove("hidden");
+    document.getElementById("edit-upload-placeholder").classList.add("hidden");
 
     if (state.editorSelectedBuilding) {
       state.editorSelectedBuilding.image = e.target.result;
@@ -2062,21 +2395,23 @@ function processBuildingImage(file) {
 
 function saveMapData() {
   const data = {
-    version: '1.0',
+    version: "1.0",
     timestamp: new Date().toISOString(),
     mapData: state.mapData,
-    buildings: state.editorBuildings
+    buildings: state.editorBuildings,
   };
 
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
   a.download = `ai-town-map-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 
-  showHint('地图已导出');
+  showHint("地图已导出");
 }
 
 function loadMapData(e) {
@@ -2095,17 +2430,17 @@ function loadMapData(e) {
       }
       renderBuildingListInEditor();
       updateEditorInfo();
-      showHint('地图已加载');
+      showHint("地图已加载");
     } catch (err) {
-      alert('加载失败：' + err.message);
+      alert("加载失败：" + err.message);
     }
   };
   reader.readAsText(file);
-  e.target.value = '';
+  e.target.value = "";
 }
 
 function clearMap() {
-  if (!confirm('确定要清空所有建筑和地形吗？此操作不可恢复。')) return;
+  if (!confirm("确定要清空所有建筑和地形吗？此操作不可恢复。")) return;
 
   saveEditHistory();
   initMapData();
@@ -2114,48 +2449,54 @@ function clearMap() {
   renderBuildingListInEditor();
   renderEditorBuildingProperties();
   updateEditorInfo();
-  showHint('地图已清空');
+  showHint("地图已清空");
 }
 
 function updateEditorInfo() {
-  const dimensionsEl = document.getElementById('map-dimensions');
-  const countEl = document.getElementById('building-count');
+  const dimensionsEl = document.getElementById("map-dimensions");
+  const countEl = document.getElementById("building-count");
 
-  if (dimensionsEl) dimensionsEl.textContent = `${CONFIG.WORLD_WIDTH}×${CONFIG.WORLD_HEIGHT}`;
+  if (dimensionsEl)
+    dimensionsEl.textContent = `${CONFIG.WORLD_WIDTH}×${CONFIG.WORLD_HEIGHT}`;
   if (countEl) countEl.textContent = state.editorBuildings?.length || 0;
 }
 
 function renderBuildingListInEditor() {
-  const container = document.getElementById('editor-building-content');
+  const container = document.getElementById("editor-building-content");
   if (!container) return;
 
   const buildings = state.editorBuildings || [];
 
   if (buildings.length === 0) {
-    container.innerHTML = '<div class="empty-state">暂无建筑，点击"新建建筑"添加</div>';
+    container.innerHTML =
+      '<div class="empty-state">暂无建筑，点击"新建建筑"添加</div>';
     return;
   }
 
   container.innerHTML = `
     <div class="editor-building-list">
-      ${buildings.map(b => `
-        <div class="editor-building-item ${state.editorSelectedBuilding?.id === b.id ? 'selected' : ''}"
+      ${buildings
+        .map(
+          (b) => `
+        <div class="editor-building-item ${state.editorSelectedBuilding?.id === b.id ? "selected" : ""}"
              data-id="${b.id}">
-          <div class="building-status-icon ${b.obstacle ? 'obstacle' : 'passable'}"></div>
+          <div class="building-status-icon ${b.obstacle ? "obstacle" : "passable"}"></div>
           <div style="flex: 1;">
             <div style="font-weight: 500;">${b.name}</div>
             <div style="font-size: 11px; color: rgba(255,255,255,0.5);">${b.id} · ${b.width}×${b.height}</div>
           </div>
         </div>
-      `).join('')}
+      `,
+        )
+        .join("")}
     </div>
   `;
 
   // 添加点击事件
-  container.querySelectorAll('.editor-building-item').forEach(item => {
-    item.addEventListener('click', () => {
+  container.querySelectorAll(".editor-building-item").forEach((item) => {
+    item.addEventListener("click", () => {
       const id = item.dataset.id;
-      const building = state.editorBuildings.find(b => b.id === id);
+      const building = state.editorBuildings.find((b) => b.id === id);
       if (building) {
         showEditBuildingModalForEdit(building);
       }
@@ -2164,7 +2505,7 @@ function renderBuildingListInEditor() {
 }
 
 function renderEditorBuildingProperties() {
-  const panel = document.getElementById('editor-building-content');
+  const panel = document.getElementById("editor-building-content");
   if (!panel) return;
 
   if (!state.editorSelectedBuilding) {
@@ -2193,8 +2534,8 @@ function renderEditorBuildingProperties() {
     <div class="property-group">
       <label>障碍物</label>
       <div class="property-value">
-        <span class="color-indicator ${b.obstacle ? 'color-obstacle' : 'color-passable'}"></span>
-        ${b.obstacle ? '是' : '否'}
+        <span class="color-indicator ${b.obstacle ? "color-obstacle" : "color-passable"}"></span>
+        ${b.obstacle ? "是" : "否"}
       </div>
     </div>
     <button class="btn btn-block" onclick="showEditBuildingModalForEdit(state.editorSelectedBuilding)">
@@ -2204,17 +2545,17 @@ function renderEditorBuildingProperties() {
 }
 
 function showHint(message) {
-  const oldHint = document.querySelector('.editor-hint');
+  const oldHint = document.querySelector(".editor-hint");
   if (oldHint) oldHint.remove();
 
-  const hint = document.createElement('div');
-  hint.className = 'editor-hint';
+  const hint = document.createElement("div");
+  hint.className = "editor-hint";
   hint.textContent = message;
   document.body.appendChild(hint);
 
   setTimeout(() => {
-    hint.style.opacity = '0';
-    hint.style.transition = 'opacity 0.3s';
+    hint.style.opacity = "0";
+    hint.style.transition = "opacity 0.3s";
     setTimeout(() => hint.remove(), 300);
   }, 3000);
 }
@@ -2223,4 +2564,4 @@ function showHint(message) {
 window.showEditBuildingModalForEdit = showEditBuildingModalForEdit;
 
 // ========== 启动 ==========
-window.addEventListener('DOMContentLoaded', init);
+window.addEventListener("DOMContentLoaded", init);

@@ -36,6 +36,8 @@ npm run stop
 npm run db:setup
 ```
 
+Note: vitest uses default configuration (no `vitest.config.*` file exists).
+
 ## Architecture
 
 ### Current Architecture (Web-First)
@@ -43,36 +45,54 @@ npm run db:setup
 The system has been refactored from a CLI-based simulator to a browser-based simulation:
 
 1. **Simple Server** (`src/server/simple-server.ts`) - HTTP server that:
-   - Proxies LLM requests to the configured provider
+   - Proxies LLM requests to the configured provider (Anthropic-style headers)
    - Serves static files from `public/`
    - Handles embedding requests
+   - Auto-increments port if 3061 is in use
 
 2. **Browser-Based Simulation** (`public/js/`) - Frontend contains:
-   - `app.js` - Main simulation logic, UI, event handling
+   - `app.js` - Main simulation logic, UI, event handling (also contains its own canvas renderer)
    - `agent.js` - `Agent` class: perception, decision-making, action execution
    - `simulator.js` - `WorldSimulator` class: 2D grid simulation with tick-based timing
    - `memory.js` - `MemorySystem` class: three-layer memory (observations, reflections, plans)
    - `llm-client.js` - Communicates with backend `/api/llm/chat` endpoint
-   - `renderer.js` - Canvas-based 2D rendering with sprite support
    - `asset-config.js` - Sprite paths and display sizes
+   - `pathfinder.js` - A\* pathfinding with terrain collision
    - `building-editor.js` - Map editing tools
+   - `image-loader.js` - Asset loading manager
+
+   **Module dependency graph** (ES modules, all imported by `app.js`):
+
+   ```
+   app.js → simulator.js → agent.js → memory.js
+                                  → pathfinder.js
+                → llm-client.js
+                → image-loader.js
+                → asset-config.js
+   ```
+
+   **Note:** `renderer.js` exists but is not imported by the active codebase — `app.js` contains its own rendering logic. It is legacy/unused.
 
 ### Movement System
 
 Agent movement is now independent of the simulation tick:
+
 - **Tick interval** (`TICK_INTERVAL_MS`): Controls decision-making frequency (default: 5000ms)
 - **Move interval**: 200ms per grid cell (independent timer in Agent)
 - Agents make new decisions every 50 ticks OR when reaching their destination
-- Movement uses pathfinding with terrain collision detection
+- Movement uses A\* pathfinding (`pathfinder.js`) with terrain collision detection
+- Path recalculates dynamically when blocked
 
 ### Memory Retrieval Algorithm
 
 The system uses a three-dimensional weighted scoring for memory retrieval:
+
 ```
 score = relevance × 0.6 + recency × 0.2 + importance × 0.2
 ```
 
 Where:
+
 - Relevance = cosine similarity between query and memory embeddings
 - Recency = exponential decay based on hours since creation
 - Importance = 1-10 score normalized to 0-1
@@ -126,12 +146,14 @@ Buildings provide services that agents can use:
 ```
 
 **Service Types:**
+
 - **Food services**: Restore fullness (coffee +5, snacks +10, meals +25-50)
 - **Sleep services**: Restore health (+10), only available at home
 - **Work services**: Earn green points (15-25/hour), available at cafe/shop
 - **Recreation**: Park activities (walking, exercise)
 
 **Action Types:**
+
 - `MOVE` - Navigate to target position
 - `TALK` - Conversations with nearby agents
 - `WAIT` - Idle action
@@ -142,6 +164,7 @@ Buildings provide services that agents can use:
 ### Decision Priority System
 
 Agent decisions follow a strict priority (highest to lowest):
+
 1. Sleep deprivation (2+ days) → must SLEEP
 2. Health < 30 → prioritize rest
 3. Nighttime (22:00-6:00) → should SLEEP
@@ -155,10 +178,14 @@ Agent decisions follow a strict priority (highest to lowest):
 The project currently uses **Kimi K2.5** via Alibaba Cloud DashScope. Configuration is in `src/server/simple-server.ts`:
 
 - Provider: `custom`
+- Model: `kimi-k2.5` (from `CUSTOM_MODEL` env var, defaults to this)
 - Endpoint: `https://coding.dashscope.aliyuncs.com/apps/anthropic/v1/messages`
 - Response path: `content[1].text` (Kimi returns thinking + text as two content items)
 
+The server uses Anthropic-style headers (`x-api-key`, `anthropic-version`) for the DashScope endpoint.
+
 To switch providers, modify `.env`:
+
 ```
 LLM_PROVIDER=openai  # or anthropic, ollama, custom
 OPENAI_API_KEY=sk-xxx
@@ -168,14 +195,14 @@ OPENAI_MODEL=gpt-4o-mini
 ## Project Structure
 
 ```
-src/                        # TypeScript source (legacy CLI + server)
+src/                        # TypeScript source (legacy CLI + active server)
 ├── server/
-│   └── simple-server.ts    # HTTP server + LLM proxy
+│   └── simple-server.ts    # HTTP server + LLM proxy (the only active TS code)
 ├── types/
 │   └── index.ts            # TypeScript interfaces and enums
 ├── data/
 │   └── agent-templates.ts  # Legacy agent templates
-└── ...                     # Other legacy CLI code
+└── ...                     # Legacy CLI code (deprecated, kept for reference)
 
 public/                     # Static frontend files (primary simulation)
 ├── index.html              # Main HTML
@@ -207,11 +234,14 @@ public/                     # Static frontend files (primary simulation)
 ## Environment Variables
 
 Critical variables (from `.env.example`):
+
 - `LLM_PROVIDER` - openai/anthropic/ollama/custom
 - `CUSTOM_API_KEY` / `CUSTOM_ENDPOINT` / `CUSTOM_RESPONSE_PATH` - For custom provider
 - `CUSTOM_EMBEDDING_ENDPOINT` / `CUSTOM_EMBEDDING_RESPONSE_PATH` - Optional embedding service
+- `PORT` - Server port (default: 3061, auto-increments if in use)
 - `TICK_INTERVAL_MS` - Simulation tick interval (default: 5000ms)
 - `WORLD_WIDTH` / `WORLD_HEIGHT` - Map dimensions (default: 50x50)
+- `MAX_AGENTS` - Maximum number of agents (default: 10)
 - `TIME_SCALE` - Game time speed (default: 60, meaning 1 real second = 1 game minute)
 
 ## Map Editor
@@ -219,12 +249,14 @@ Critical variables (from `.env.example`):
 The web interface includes a full map editor accessible via "编辑地图" button:
 
 **Tools:**
+
 - **Select**: Click to select/move buildings
 - **Ground/Path**: Paint terrain tiles (grass, path, water)
 - **Building**: Place new buildings
 - **Eraser**: Remove buildings
 
 **Features:**
+
 - Drag buildings to reposition
 - Edit building properties (name, size, obstacle flag)
 - Import/export map data as JSON
@@ -256,12 +288,12 @@ Then open your browser to `http://localhost:3061` (or the port shown in console)
 
 Default agents (configured in `public/js/app.js`):
 
-| Name | Age | Traits | Health Max | Fullness | Green Points |
-|------|-----|--------|------------|----------|--------------|
-| 小明 | 25 | 开朗活泼，喜欢社交 | 100 | 80 | 10 |
-| 小红 | 24 | 温柔细腻，喜欢阅读 | 85 | 75 | 10 |
-| 小米 | 22 | 活泼可爱，喜欢美食 | 90 | 70 | 10 |
-| 小东 | 26 | 沉稳内敛，喜欢运动 | 100 | 90 | 10 |
+| Name | Age | Traits             | Health Max | Fullness | Green Points |
+| ---- | --- | ------------------ | ---------- | -------- | ------------ |
+| 小明 | 25  | 开朗活泼，喜欢社交 | 100        | 80       | 10           |
+| 小红 | 24  | 温柔细腻，喜欢阅读 | 85         | 75       | 10           |
+| 小米 | 22  | 活泼可爱，喜欢美食 | 90         | 70       | 10           |
+| 小东 | 26  | 沉稳内敛，喜欢运动 | 100        | 90       | 10           |
 
 ### API Endpoints
 
@@ -274,6 +306,7 @@ The server exposes these endpoints:
 ## Asset Configuration
 
 Character and building sprites are configured in `public/js/asset-config.js`:
+
 - Characters have `sprite` (world), `portrait` (UI), and `displaySize`
 - Buildings have `sprite` and `displaySize`
 - Supports dynamic loading with fallback to default
@@ -287,5 +320,6 @@ Uses `moduleResolution: "bundler"` with path mapping `@/*` → `src/*`. The `dis
 ## Legacy CLI Mode
 
 The original CLI mode is deprecated. The web-based simulation is now the primary interface. Legacy scripts exist for reference but may not be maintained:
+
 - `npm run legacy:cli` - Original CLI entry point
 - `npm run legacy:web` - Original WebSocket-based server

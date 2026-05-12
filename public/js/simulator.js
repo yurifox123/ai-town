@@ -2,7 +2,7 @@
  * 世界模拟器（前端版本）
  * 管理所有Agent、世界状态和时间推进
  */
-import Agent from './agent.js';
+import Agent from "./agent.js";
 
 class WorldSimulator extends EventTarget {
   constructor(width = 50, height = 50, timeScale = 60, llmClient) {
@@ -28,7 +28,7 @@ class WorldSimulator extends EventTarget {
     // 小镇血量（生态健康度）
     this.townHealth = {
       current: 100,
-      max: 100
+      max: 100,
     };
 
     // Tick计数器
@@ -43,108 +43,148 @@ class WorldSimulator extends EventTarget {
   initializeWorld() {
     const locations = [
       {
-        id: 'cafe',
-        name: '咖啡馆',
-        type: 'building',
-        position: { x: 15, y: 5, area: '咖啡馆' },
+        id: "cafe",
+        name: "咖啡馆",
+        type: "building",
+        position: { x: 15, y: 5, area: "咖啡馆" },
         interactable: true,
-        description: '一个温馨的咖啡馆，提供各种咖啡和点心',
+        description: "一个温馨的咖啡馆，提供各种咖啡和点心",
         services: [
-          { name: '咖啡', cost: 5, fullness: 5, description: '一杯提神咖啡' },
-          { name: '点心', cost: 15, fullness: 15, description: '精致小点心' },
-          { name: '套餐', cost: 30, fullness: 30, description: '丰盛套餐' },
-          { name: '工作', cost: 0, income: 20, description: '在咖啡馆打工' }
-        ]
-      },
-      {
-        id: 'park',
-        name: '公园',
-        type: 'area',
-        position: { x: 33, y: 18, area: '公园' },
-        interactable: true,
-        description: '绿树成荫的公园，适合散步和放松',
-        services: [
-          { name: '散步', cost: 0, health: 2, fullness: -2, description: '悠闲散步' },
-          { name: '锻炼', cost: 0, health: 5, fullness: -5, description: '户外锻炼' }
-        ]
-      },
-      {
-        id: 'home1',
-        name: '小明家',
-        type: 'building',
-        position: { x: 5, y: 5, area: '家' },
-        interactable: true,
-        description: '小明的温馨小屋',
-        services: [
-          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
-          { name: '休息', cost: 0, health: 3, description: '在家休息' }
+          { name: "咖啡", cost: 5, fullness: 5, description: "一杯提神咖啡" },
+          { name: "点心", cost: 15, fullness: 15, description: "精致小点心" },
+          { name: "套餐", cost: 30, fullness: 30, description: "丰盛套餐" },
+          { name: "工作", cost: 0, income: 20, description: "在咖啡馆打工" },
         ],
-        owner: 'xiaoming'
       },
       {
-        id: 'home2',
-        name: '小红家',
-        type: 'building',
-        position: { x: 45, y: 35, area: '家' },
+        id: "park",
+        name: "公园",
+        type: "area",
+        position: { x: 33, y: 18, area: "公园" },
         interactable: true,
-        description: '小红的公寓',
+        description: "绿树成荫的公园，适合散步和放松",
         services: [
-          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
-          { name: '休息', cost: 0, health: 3, description: '在家休息' }
+          {
+            name: "散步",
+            cost: 0,
+            health: 2,
+            fullness: -2,
+            description: "悠闲散步",
+          },
+          {
+            name: "锻炼",
+            cost: 0,
+            health: 5,
+            fullness: -5,
+            description: "户外锻炼",
+          },
         ],
-        owner: 'xiaohong'
       },
       {
-        id: 'shop',
-        name: '便利店',
-        type: 'building',
-        position: { x: 22, y: 15, area: '商店' },
+        id: "home1",
+        name: "小明家",
+        type: "building",
+        position: { x: 5, y: 5, area: "家" },
         interactable: true,
-        description: '24小时便利店',
+        description: "小明的温馨小屋",
         services: [
-          { name: '零食', cost: 10, fullness: 10, description: '方便零食' },
-          { name: '便当', cost: 25, fullness: 25, description: '加热便当' },
-          { name: '大餐', cost: 50, fullness: 50, description: '豪华便当' },
-          { name: '工作', cost: 0, income: 15, description: '在便利店打工' }
-        ]
-      },
-      {
-        id: 'library',
-        name: '图书馆',
-        type: 'building',
-        position: { x: 15, y: 22, area: '图书馆' },
-        interactable: true,
-        description: '安静的阅读场所',
-        services: [
-          { name: '阅读', cost: 0, description: '安静阅读' }
-        ]
-      },
-      {
-        id: 'home3',
-        name: '小米家',
-        type: 'building',
-        position: { x: 5, y: 35, area: '家' },
-        interactable: true,
-        description: '小米的美食小屋，总是飘着诱人的香气',
-        services: [
-          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
-          { name: '休息', cost: 0, health: 3, description: '在家休息' }
+          {
+            name: "睡觉",
+            cost: 0,
+            health: 10,
+            fullness: -1,
+            description: "在家睡觉恢复",
+          },
+          { name: "休息", cost: 0, health: 3, description: "在家休息" },
         ],
-        owner: 'xiaomi'
+        owner: "xiaoming",
       },
       {
-        id: 'home4',
-        name: '小东家',
-        type: 'building',
-        position: { x: 45, y: 5, area: '家' },
+        id: "home2",
+        name: "小红家",
+        type: "building",
+        position: { x: 45, y: 35, area: "家" },
         interactable: true,
-        description: '小东的健身之家，充满运动活力',
+        description: "小红的公寓",
         services: [
-          { name: '睡觉', cost: 0, health: 10, fullness: -1, description: '在家睡觉恢复' },
-          { name: '锻炼', cost: 0, health: 8, fullness: -3, description: '在家锻炼' }
+          {
+            name: "睡觉",
+            cost: 0,
+            health: 10,
+            fullness: -1,
+            description: "在家睡觉恢复",
+          },
+          { name: "休息", cost: 0, health: 3, description: "在家休息" },
         ],
-        owner: 'xiaodong'
-      }
+        owner: "xiaohong",
+      },
+      {
+        id: "shop",
+        name: "便利店",
+        type: "building",
+        position: { x: 22, y: 15, area: "商店" },
+        interactable: true,
+        description: "24小时便利店",
+        services: [
+          { name: "零食", cost: 10, fullness: 10, description: "方便零食" },
+          { name: "便当", cost: 25, fullness: 25, description: "加热便当" },
+          { name: "大餐", cost: 50, fullness: 50, description: "豪华便当" },
+          { name: "工作", cost: 0, income: 15, description: "在便利店打工" },
+        ],
+      },
+      {
+        id: "library",
+        name: "图书馆",
+        type: "building",
+        position: { x: 15, y: 22, area: "图书馆" },
+        interactable: true,
+        description: "安静的阅读场所",
+        services: [{ name: "阅读", cost: 0, description: "安静阅读" }],
+      },
+      {
+        id: "home3",
+        name: "小米家",
+        type: "building",
+        position: { x: 5, y: 35, area: "家" },
+        interactable: true,
+        description: "小米的美食小屋，总是飘着诱人的香气",
+        services: [
+          {
+            name: "睡觉",
+            cost: 0,
+            health: 10,
+            fullness: -1,
+            description: "在家睡觉恢复",
+          },
+          { name: "休息", cost: 0, health: 3, description: "在家休息" },
+        ],
+        owner: "xiaomi",
+      },
+      {
+        id: "home4",
+        name: "小东家",
+        type: "building",
+        position: { x: 45, y: 5, area: "家" },
+        interactable: true,
+        description: "小东的健身之家，充满运动活力",
+        services: [
+          {
+            name: "睡觉",
+            cost: 0,
+            health: 10,
+            fullness: -1,
+            description: "在家睡觉恢复",
+          },
+          {
+            name: "锻炼",
+            cost: 0,
+            health: 8,
+            fullness: -3,
+            description: "在家锻炼",
+          },
+        ],
+        owner: "xiaodong",
+      },
     ];
 
     for (const obj of locations) {
@@ -171,26 +211,26 @@ class WorldSimulator extends EventTarget {
     for (let x = 0; x < width; x++) {
       // 上边围墙（除了大门位置）
       if (x !== 25) {
-        this.terrain.set(`${x},0`, 'wall');
+        this.terrain.set(`${x},0`, "wall");
       } else {
-        this.terrain.set(`${x},0`, 'gate');
-        this.gates.push({ x, y: 0, direction: 'north' });
+        this.terrain.set(`${x},0`, "gate");
+        this.gates.push({ x, y: 0, direction: "north" });
       }
 
       // 下边围墙（除了大门位置）
       if (x !== 25) {
-        this.terrain.set(`${x},${height - 1}`, 'wall');
+        this.terrain.set(`${x},${height - 1}`, "wall");
       } else {
-        this.terrain.set(`${x},${height - 1}`, 'gate');
-        this.gates.push({ x, y: height - 1, direction: 'south' });
+        this.terrain.set(`${x},${height - 1}`, "gate");
+        this.gates.push({ x, y: height - 1, direction: "south" });
       }
     }
 
     for (let y = 1; y < height - 1; y++) {
       // 左边围墙
-      this.terrain.set(`0,${y}`, 'wall');
+      this.terrain.set(`0,${y}`, "wall");
       // 右边围墙
-      this.terrain.set(`${width - 1},${y}`, 'wall');
+      this.terrain.set(`${width - 1},${y}`, "wall");
     }
 
     // 2. 创建河流（穿过小镇，从西到东，蜿蜒曲折）
@@ -203,12 +243,12 @@ class WorldSimulator extends EventTarget {
       const riverY = Math.floor(riverYBase + curve);
 
       // 河流宽度2-3格
-      this.terrain.set(`${x},${riverY}`, 'river');
-      this.terrain.set(`${x},${riverY + 1}`, 'river');
+      this.terrain.set(`${x},${riverY}`, "river");
+      this.terrain.set(`${x},${riverY + 1}`, "river");
 
       // 河流弯曲处加宽
       if (Math.abs(curve) > 2) {
-        this.terrain.set(`${x},${riverY - 1}`, 'river');
+        this.terrain.set(`${x},${riverY - 1}`, "river");
       }
     }
 
@@ -222,27 +262,28 @@ class WorldSimulator extends EventTarget {
       const riverY = Math.floor(riverYBase + curve);
 
       // 桥梁替换河流地形
-      this.terrain.set(`${x},${riverY}`, 'bridge');
-      this.terrain.set(`${x},${riverY + 1}`, 'bridge');
-      if (this.terrain.get(`${x},${riverY - 1}`) === 'river') {
-        this.terrain.set(`${x},${riverY - 1}`, 'bridge');
+      this.terrain.set(`${x},${riverY}`, "bridge");
+      this.terrain.set(`${x},${riverY + 1}`, "bridge");
+      if (this.terrain.get(`${x},${riverY - 1}`) === "river") {
+        this.terrain.set(`${x},${riverY - 1}`, "bridge");
       }
     }
 
     // 4. 添加一些装饰性围墙（内部小区域）
     // 在公园周围添加矮墙
-    const parkX = 33, parkY = 18;
+    const parkX = 33,
+      parkY = 18;
     for (let x = parkX - 3; x <= parkX + 3; x++) {
-      this.terrain.set(`${x},${parkY - 3}`, 'fence');
-      this.terrain.set(`${x},${parkY + 3}`, 'fence');
+      this.terrain.set(`${x},${parkY - 3}`, "fence");
+      this.terrain.set(`${x},${parkY + 3}`, "fence");
     }
     for (let y = parkY - 2; y <= parkY + 2; y++) {
-      this.terrain.set(`${parkX - 3},${y}`, 'fence');
-      this.terrain.set(`${parkX + 3},${y}`, 'fence');
+      this.terrain.set(`${parkX - 3},${y}`, "fence");
+      this.terrain.set(`${parkX + 3},${y}`, "fence");
     }
     // 公园入口
-    this.terrain.set(`${parkX},${parkY + 3}`, 'gate');
-    this.gates.push({ x: parkX, y: parkY + 3, direction: 'south' });
+    this.terrain.set(`${parkX},${parkY + 3}`, "gate");
+    this.gates.push({ x: parkX, y: parkY + 3, direction: "south" });
   }
 
   /**
@@ -261,7 +302,7 @@ class WorldSimulator extends EventTarget {
 
     // 可通行的地形：undefined(空地), 'gate'(大门), 'bridge'(桥梁)
     // 不可通行的地形：'wall'(围墙), 'river'(河流), 'fence'(栅栏)
-    if (terrain === 'wall' || terrain === 'river' || terrain === 'fence') {
+    if (terrain === "wall" || terrain === "river" || terrain === "fence") {
       return false;
     }
 
@@ -311,7 +352,7 @@ class WorldSimulator extends EventTarget {
       while (!validPosition && attempts < 100) {
         newPos = {
           x: Math.floor(Math.random() * this.width),
-          y: Math.floor(Math.random() * this.height)
+          y: Math.floor(Math.random() * this.height),
         };
         validPosition = this.isPassable(newPos.x, newPos.y);
         attempts++;
@@ -319,7 +360,9 @@ class WorldSimulator extends EventTarget {
 
       if (!validPosition) {
         // 如果找不到随机位置，使用家门位置
-        const home = this.objects.values().find(obj => obj.owner === config.id);
+        const home = this.objects
+          .values()
+          .find((obj) => obj.owner === config.id);
         if (home) {
           newPos = { ...home.position };
         } else {
@@ -335,9 +378,11 @@ class WorldSimulator extends EventTarget {
     this.agents.set(agent.id, agent);
 
     // 触发事件
-    this.dispatchEvent(new CustomEvent('agentJoined', {
-      detail: this.getAgentState(agent)
-    }));
+    this.dispatchEvent(
+      new CustomEvent("agentJoined", {
+        detail: this.getAgentState(agent),
+      }),
+    );
 
     return agent;
   }
@@ -349,9 +394,11 @@ class WorldSimulator extends EventTarget {
     const agent = this.agents.get(agentId);
     if (agent) {
       this.agents.delete(agentId);
-      this.dispatchEvent(new CustomEvent('agentLeft', {
-        detail: { agentId }
-      }));
+      this.dispatchEvent(
+        new CustomEvent("agentLeft", {
+          detail: { agentId },
+        }),
+      );
     }
   }
 
@@ -374,15 +421,19 @@ class WorldSimulator extends EventTarget {
 
       // 推进游戏时间：现实1秒 = 游戏timeScale分钟
       const gameMinutes = realSeconds * this.timeScale;
-      this.gameTime = new Date(this.gameTime.getTime() + gameMinutes * 60 * 1000);
+      this.gameTime = new Date(
+        this.gameTime.getTime() + gameMinutes * 60 * 1000,
+      );
 
       // 触发时间更新事件
-      this.dispatchEvent(new CustomEvent('timeUpdate', {
-        detail: { time: this.gameTime, townHealth: this.townHealth }
-      }));
+      this.dispatchEvent(
+        new CustomEvent("timeUpdate", {
+          detail: { time: this.gameTime, townHealth: this.townHealth },
+        }),
+      );
     }, 1000); // 每秒更新一次
 
-    this.dispatchEvent(new CustomEvent('started'));
+    this.dispatchEvent(new CustomEvent("started"));
   }
 
   /**
@@ -399,7 +450,7 @@ class WorldSimulator extends EventTarget {
       clearInterval(this.timeUpdateInterval);
       this.timeUpdateInterval = null;
     }
-    this.dispatchEvent(new CustomEvent('stopped'));
+    this.dispatchEvent(new CustomEvent("stopped"));
   }
 
   /**
@@ -432,14 +483,16 @@ class WorldSimulator extends EventTarget {
     }
 
     // 触发tick事件
-    this.dispatchEvent(new CustomEvent('tick', {
-      detail: {
-        time: this.gameTime,
-        agents: agentStates,
-        tickCount: this.tickCount,
-        townHealth: this.townHealth
-      }
-    }));
+    this.dispatchEvent(
+      new CustomEvent("tick", {
+        detail: {
+          time: this.gameTime,
+          agents: agentStates,
+          tickCount: this.tickCount,
+          townHealth: this.townHealth,
+        },
+      }),
+    );
   }
 
   /**
@@ -450,9 +503,15 @@ class WorldSimulator extends EventTarget {
     const realSeconds = this.tickIntervalMs / 1000;
     const gameMinutes = realSeconds * this.timeScale;
     const isMoving = agent.isMoving && agent.isMoving();
-    const isWorking = agent.currentAction && agent.currentAction.type === 'WORK';
-    const isSleeping = agent.status === 'sleeping';
-    agent.updateSurvivalAttributes(gameMinutes, isMoving, isWorking, isSleeping);
+    const isWorking =
+      agent.currentAction && agent.currentAction.type === "WORK";
+    const isSleeping = agent.status === "sleeping";
+    agent.updateSurvivalAttributes(
+      gameMinutes,
+      isMoving,
+      isWorking,
+      isSleeping,
+    );
 
     // 0.1 处理工作收入
     if (isWorking) {
@@ -466,12 +525,12 @@ class WorldSimulator extends EventTarget {
       const hour = this.gameTime.getHours();
       // 早上6点自动醒来
       if (hour >= 6 && hour < 22) {
-        agent.status = 'idle';
+        agent.status = "idle";
         agent.currentAction = null;
         await agent.memory.addMemory(
-          '睡醒了，感觉精神饱满',
+          "睡醒了，感觉精神饱满",
           agent.MemoryType.OBSERVATION,
-          5
+          5,
         );
       }
     }
@@ -514,16 +573,16 @@ class WorldSimulator extends EventTarget {
 
       const otherPos = other.getPosition();
       const distance = Math.sqrt(
-        Math.pow(pos.x - otherPos.x, 2) + Math.pow(pos.y - otherPos.y, 2)
+        Math.pow(pos.x - otherPos.x, 2) + Math.pow(pos.y - otherPos.y, 2),
       );
 
       if (distance <= 5) {
         observations.push({
-          type: 'agent',
+          type: "agent",
           description: `看到${other.name}在附近`,
           position: otherPos,
           targetId: other.id,
-          distance
+          distance,
         });
         agent.nearbyAgents.add(other.id);
       } else {
@@ -535,16 +594,16 @@ class WorldSimulator extends EventTarget {
     for (const obj of this.objects.values()) {
       const objPos = obj.position;
       const distance = Math.sqrt(
-        Math.pow(pos.x - objPos.x, 2) + Math.pow(pos.y - objPos.y, 2)
+        Math.pow(pos.x - objPos.x, 2) + Math.pow(pos.y - objPos.y, 2),
       );
 
       if (distance <= 3) {
         observations.push({
-          type: 'object',
+          type: "object",
           description: `在${obj.name}附近`,
           position: objPos,
           targetId: obj.id,
-          distance
+          distance,
         });
       }
     }
@@ -553,9 +612,9 @@ class WorldSimulator extends EventTarget {
     const hour = this.gameTime.getHours();
     if (hour >= 22 || hour < 6) {
       observations.push({
-        type: 'time',
-        description: '现在是夜晚',
-        position: pos
+        type: "time",
+        description: "现在是夜晚",
+        position: pos,
       });
     }
 
@@ -568,7 +627,9 @@ class WorldSimulator extends EventTarget {
   async checkAgentInteractions(agent) {
     // 简单的随机交互概率 (20%概率，且1分钟冷却)
     if (agent.nearbyAgents.size > 0 && Math.random() < 0.2) {
-      const nearbyId = Array.from(agent.nearbyAgents)[Math.floor(Math.random() * agent.nearbyAgents.size)];
+      const nearbyId = Array.from(agent.nearbyAgents)[
+        Math.floor(Math.random() * agent.nearbyAgents.size)
+      ];
       const other = this.agents.get(nearbyId);
       if (other) {
         await this.startConversation(agent.id, nearbyId);
@@ -599,33 +660,39 @@ class WorldSimulator extends EventTarget {
     const dialogue = await this.generateDialogue(agent1, agent2);
 
     // 触发对话事件
-    this.dispatchEvent(new CustomEvent('event', {
-      detail: {
-        type: 'conversation',
-        description: `${agent1.name}和${agent2.name}在交谈`,
-        timestamp: new Date(),
-        agentIds: [agentId1, agentId2],
-        dialogue: dialogue
-      }
-    }));
+    this.dispatchEvent(
+      new CustomEvent("event", {
+        detail: {
+          type: "conversation",
+          description: `${agent1.name}和${agent2.name}在交谈`,
+          timestamp: new Date(),
+          agentIds: [agentId1, agentId2],
+          dialogue: dialogue,
+        },
+      }),
+    );
 
     // 发送对话气泡事件
-    this.dispatchEvent(new CustomEvent('dialogue', {
-      detail: {
-        agentId: agentId1,
-        message: dialogue.speaker1,
-        timestamp: now
-      }
-    }));
+    this.dispatchEvent(
+      new CustomEvent("dialogue", {
+        detail: {
+          agentId: agentId1,
+          message: dialogue.speaker1,
+          timestamp: now,
+        },
+      }),
+    );
 
     setTimeout(() => {
-      this.dispatchEvent(new CustomEvent('dialogue', {
-        detail: {
-          agentId: agentId2,
-          message: dialogue.speaker2,
-          timestamp: Date.now()
-        }
-      }));
+      this.dispatchEvent(
+        new CustomEvent("dialogue", {
+          detail: {
+            agentId: agentId2,
+            message: dialogue.speaker2,
+            timestamp: Date.now(),
+          },
+        }),
+      );
     }, 2000);
   }
 
@@ -635,26 +702,26 @@ class WorldSimulator extends EventTarget {
   async generateDialogue(agent1, agent2) {
     // 简化版：随机选择对话主题
     const topics = [
-      '今天的天气真好啊！',
-      '你最近在看什么书？',
-      '咖啡馆的新品不错，去试试吗？',
-      '公园里花开得真漂亮。',
-      '最近工作/学习怎么样？',
-      '听说镇上要来新人了。'
+      "今天的天气真好啊！",
+      "你最近在看什么书？",
+      "咖啡馆的新品不错，去试试吗？",
+      "公园里花开得真漂亮。",
+      "最近工作/学习怎么样？",
+      "听说镇上要来新人了。",
     ];
 
     const responses = [
-      '是啊，我也这么觉得！',
-      '真的吗？我也想看看。',
-      '好啊，一起去吧！',
-      '听起来不错呢。',
-      '还好啦，就是有点忙。',
-      '期待见到新朋友！'
+      "是啊，我也这么觉得！",
+      "真的吗？我也想看看。",
+      "好啊，一起去吧！",
+      "听起来不错呢。",
+      "还好啦，就是有点忙。",
+      "期待见到新朋友！",
     ];
 
     return {
       speaker1: topics[Math.floor(Math.random() * topics.length)],
-      speaker2: responses[Math.floor(Math.random() * responses.length)]
+      speaker2: responses[Math.floor(Math.random() * responses.length)],
     };
   }
 
@@ -666,7 +733,7 @@ class WorldSimulator extends EventTarget {
       type,
       description,
       timestamp: new Date(),
-      tickCount: this.tickCount
+      tickCount: this.tickCount,
     };
 
     this.events.push(event);
@@ -674,9 +741,11 @@ class WorldSimulator extends EventTarget {
       this.events.shift();
     }
 
-    this.dispatchEvent(new CustomEvent('event', {
-      detail: event
-    }));
+    this.dispatchEvent(
+      new CustomEvent("event", {
+        detail: event,
+      }),
+    );
 
     return event;
   }
@@ -702,7 +771,7 @@ class WorldSimulator extends EventTarget {
       isPassable: (x, y) => this.isPassable(x, y),
       getTerrainAt: (x, y) => this.getTerrainAt(x, y),
       getTerrainMap: () => this.getTerrainMap(),
-      getGates: () => this.getGates()
+      getGates: () => this.getGates(),
     };
   }
 
@@ -716,6 +785,7 @@ class WorldSimulator extends EventTarget {
       name: agent.name,
       position: state.position,
       status: state.status,
+      facingDirection: agent.facingDirection || "down",
       currentAction: state.currentAction,
       health: agent.health,
       greenPoints: agent.greenPoints,
@@ -724,8 +794,8 @@ class WorldSimulator extends EventTarget {
         age: agent.config.age,
         traits: agent.config.traits,
         background: agent.config.background,
-        goals: agent.config.goals
-      }
+        goals: agent.config.goals,
+      },
     };
   }
 
@@ -744,7 +814,7 @@ class WorldSimulator extends EventTarget {
       tickCount: this.tickCount,
       gameTime: this.gameTime.toISOString(),
       agents,
-      events: this.events
+      events: this.events,
     };
   }
 
@@ -769,9 +839,11 @@ class WorldSimulator extends EventTarget {
       this.events = data.events;
     }
 
-    this.dispatchEvent(new CustomEvent('loaded', {
-      detail: { tickCount: this.tickCount, agentCount: this.agents.size }
-    }));
+    this.dispatchEvent(
+      new CustomEvent("loaded", {
+        detail: { tickCount: this.tickCount, agentCount: this.agents.size },
+      }),
+    );
   }
 
   /**

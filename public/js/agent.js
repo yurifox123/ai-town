@@ -2,8 +2,8 @@
  * Agent类（前端版本）
  * 能够自主感知、记忆、规划和行动的AI代理
  */
-import MemorySystem from './memory.js';
-import PathFinder from './pathfinder.js';
+import MemorySystem from "./memory.js";
+import PathFinder from "./pathfinder.js";
 
 class Agent {
   constructor(config, llmClient) {
@@ -20,6 +20,7 @@ class Agent {
     this.currentPath = []; // A*计算出的路径
     this.currentPathIndex = 0; // 当前走到路径的哪一步
     this.movesSinceLastDecision = 0;
+    this.facingDirection = "down";
     this.decisionInterval = 50; // 每50格做一次新决策
     this.moveInterval = null; // 移动定时器
     this.moveSpeed = 200; // 每 0.2 秒 (200ms) 走一格
@@ -28,7 +29,7 @@ class Agent {
     this.currentPlan = null;
     this.currentAction = null;
     this.observations = [];
-    this.status = 'idle';
+    this.status = "idle";
 
     // 社交状态
     this.nearbyAgents = new Set();
@@ -37,35 +38,35 @@ class Agent {
     // 生存属性
     this.health = {
       current: config.healthMax || 100, // 当前健康值 (0-100)
-      max: config.healthMax || 100      // 健康值上限
+      max: config.healthMax || 100, // 健康值上限
     };
     this.greenPoints = config.greenPoints || 10; // 绿色积分，初始10，范围-10000~10000000
-    this.fullness = config.fullness || 80;       // 饱腹值 (0-100)
-    this.lastSurvivalUpdate = Date.now();        // 上次更新生存属性的时间戳
+    this.fullness = config.fullness || 80; // 饱腹值 (0-100)
+    this.lastSurvivalUpdate = Date.now(); // 上次更新生存属性的时间戳
 
     // 睡眠追踪（不睡觉惩罚机制）
-    this.lastSleepTime = Date.now();             // 上次睡觉时间戳
-    this.consecutiveNoSleepDays = 0;             // 连续不睡觉天数
+    this.lastSleepTime = Date.now(); // 上次睡觉时间戳
+    this.consecutiveNoSleepDays = 0; // 连续不睡觉天数
 
     // 记忆类型
     this.MemoryType = {
-      OBSERVATION: 'OBSERVATION',
-      THOUGHT: 'THOUGHT',
-      ACTION: 'ACTION',
-      REFLECTION: 'REFLECTION',
-      DIALOGUE: 'DIALOGUE'
+      OBSERVATION: "OBSERVATION",
+      THOUGHT: "THOUGHT",
+      ACTION: "ACTION",
+      REFLECTION: "REFLECTION",
+      DIALOGUE: "DIALOGUE",
     };
 
     // 行动类型
     this.ActionType = {
-      MOVE: 'MOVE',
-      INTERACT: 'INTERACT',
-      TALK: 'TALK',
-      THINK: 'THINK',
-      WAIT: 'WAIT',
-      SLEEP: 'SLEEP',
-      WORK: 'WORK',
-      BUY: 'BUY'
+      MOVE: "MOVE",
+      INTERACT: "INTERACT",
+      TALK: "TALK",
+      THINK: "THINK",
+      WAIT: "WAIT",
+      SLEEP: "SLEEP",
+      WORK: "WORK",
+      BUY: "BUY",
     };
 
     // 世界引用（用于地形碰撞检测）
@@ -80,17 +81,21 @@ class Agent {
     await this.memory.addMemory(
       `我是${this.name}，${this.config.age}岁。${this.config.background}`,
       this.MemoryType.THOUGHT,
-      10
+      10,
     );
 
     await this.memory.addMemory(
       `我的性格：${this.config.traits}`,
       this.MemoryType.THOUGHT,
-      9
+      9,
     );
 
     for (const goal of this.config.goals) {
-      await this.memory.addMemory(`我的目标：${goal}`, this.MemoryType.THOUGHT, 8);
+      await this.memory.addMemory(
+        `我的目标：${goal}`,
+        this.MemoryType.THOUGHT,
+        8,
+      );
     }
 
     // 创建今日计划
@@ -106,14 +111,14 @@ class Agent {
 
       // 记录到记忆
       let importance = 5;
-      if (obs.type === 'agent') importance = 7;
-      if (obs.type === 'event') importance = 8;
+      if (obs.type === "agent") importance = 7;
+      if (obs.type === "event") importance = 8;
 
       await this.memory.addMemory(
         `观察到: ${obs.description}`,
         this.MemoryType.OBSERVATION,
         importance,
-        { position: obs.position, type: obs.type }
+        { position: obs.position, type: obs.type },
       );
     }
   }
@@ -124,7 +129,10 @@ class Agent {
   async decide(worldState) {
     // 获取相关记忆
     const contextQuery = `当前情况: 我在(${this.position.x}, ${this.position.y})，${this.getTimeContext(worldState.time)}`;
-    const relevantMemories = await this.memory.retrieveMemories(contextQuery, 10);
+    const relevantMemories = await this.memory.retrieveMemories(
+      contextQuery,
+      10,
+    );
 
     // 获取世界中的地点和服务信息
     const locations = [];
@@ -135,18 +143,26 @@ class Agent {
 
       // 分类地点
       if (obj.services) {
-        const hasWork = obj.services.some(s => s.name === '工作');
-        const hasFood = obj.services.some(s => s.fullness > 0);
-        if (hasWork) workLocations.push(`${obj.name}(${obj.position.x},${obj.position.y})`);
-        if (hasFood) foodLocations.push(`${obj.name}(${obj.position.x},${obj.position.y})`);
+        const hasWork = obj.services.some((s) => s.name === "工作");
+        const hasFood = obj.services.some((s) => s.fullness > 0);
+        if (hasWork)
+          workLocations.push(
+            `${obj.name}(${obj.position.x},${obj.position.y})`,
+          );
+        if (hasFood)
+          foodLocations.push(
+            `${obj.name}(${obj.position.x},${obj.position.y})`,
+          );
       }
     }
 
     // 构建决策提示
-    const memoryContext = relevantMemories.map(r => r.memory.content).join('\n');
+    const memoryContext = relevantMemories
+      .map((r) => r.memory.content)
+      .join("\n");
 
     // 生存属性上下文
-    let survivalContext = '';
+    let survivalContext = "";
     if (this.health.current < 30) {
       survivalContext += `【紧急】健康值极低(${this.health.current}/${this.health.max})，你需要立即休息恢复！\n`;
     } else if (this.health.current < 50) {
@@ -167,14 +183,14 @@ class Agent {
       if (canAffordFood) {
         survivalContext += `【警告】很饿(${this.fullness}/100)，建议找点东西吃。\n`;
       } else {
-        survivalContext += `【警告】很饿(${this.fullness}/100)但没有钱买食物(只有${this.greenPoints}积分)，你需要先去工作赚钱。可工作地点: ${workLocations.join(', ') || '咖啡馆、便利店'}\n`;
+        survivalContext += `【警告】很饿(${this.fullness}/100)但没有钱买食物(只有${this.greenPoints}积分)，你需要先去工作赚钱。可工作地点: ${workLocations.join(", ") || "咖啡馆、便利店"}\n`;
       }
     }
 
     if (this.greenPoints < 0) {
-      survivalContext += `【警告】积分为负(${this.greenPoints})，急需工作赚钱！可工作地点: ${workLocations.join(', ') || '咖啡馆、便利店'}\n`;
+      survivalContext += `【警告】积分为负(${this.greenPoints})，急需工作赚钱！可工作地点: ${workLocations.join(", ") || "咖啡馆、便利店"}\n`;
     } else if (this.greenPoints < cheapestFoodPrice) {
-      survivalContext += `【警告】积分太少(${this.greenPoints})，连最便宜的食物都买不起，必须先去工作赚钱！可工作地点: ${workLocations.join(', ') || '咖啡馆、便利店'}\n`;
+      survivalContext += `【警告】积分太少(${this.greenPoints})，连最便宜的食物都买不起，必须先去工作赚钱！可工作地点: ${workLocations.join(", ") || "咖啡馆、便利店"}\n`;
     } else if (this.greenPoints < 30) {
       survivalContext += `【提示】积分较少(${this.greenPoints})，可能需要工作。\n`;
     }
@@ -196,13 +212,19 @@ class Agent {
     }
 
     // 附近建筑提示
-    let nearbyBuildings = '';
+    let nearbyBuildings = "";
     let canBuyFood = false;
     for (const obj of worldState.objects.values()) {
-      const distance = Math.abs(obj.position.x - this.position.x) + Math.abs(obj.position.y - this.position.y);
+      const distance =
+        Math.abs(obj.position.x - this.position.x) +
+        Math.abs(obj.position.y - this.position.y);
       if (distance <= 3 && obj.services) {
-        const foodServices = obj.services.filter(s => s.fullness > 0);
-        const services = obj.services.map(s => `${s.name}(+${s.fullness || s.health || ''},${s.cost}积分)`).join(', ');
+        const foodServices = obj.services.filter((s) => s.fullness > 0);
+        const services = obj.services
+          .map(
+            (s) => `${s.name}(+${s.fullness || s.health || ""},${s.cost}积分)`,
+          )
+          .join(", ");
         nearbyBuildings += `- ${obj.name}: ${services}\n`;
         if (foodServices.length > 0) {
           canBuyFood = true;
@@ -228,10 +250,10 @@ ${survivalContext}
 - 状态: ${this.status}
 - 附近: ${this.getNearbyDescription()}
 
-世界中的地点: ${locations.join(', ')}
+世界中的地点: ${locations.join(", ")}
 
 附近建筑服务:
-${nearbyBuildings || '无'}
+${nearbyBuildings || "无"}
 
 请决定你接下来要做什么。用JSON格式输出你的决定：
 {
@@ -249,7 +271,7 @@ ${nearbyBuildings || '无'}
 - WAIT: 原地等待
 - SLEEP: 回家睡觉(恢复健康和饱腹)
 - WORK: 在工作地点工作赚取积分
-- BUY: 在附近建筑购买食物或服务${canBuyFood ? '，你现在就在建筑附近可以购买' : ''}
+- BUY: 在附近建筑购买食物或服务${canBuyFood ? "，你现在就在建筑附近可以购买" : ""}
 
 决策优先级（严格遵循，从高到低）:
 1. 连续2天+没睡觉: 必须立即回家睡觉（SLEEP），不睡觉会扣大量健康值甚至死亡！
@@ -264,18 +286,21 @@ ${nearbyBuildings || '无'}
 重要提醒:
 - 不睡觉惩罚：1天不睡-10健康，2天不睡-50健康，3天不睡健康归零直接昏迷！
 - 深夜(22:00-6:00)不睡觉会持续累积不睡觉天数，请按时睡觉。
-${this.consecutiveNoSleepDays >= 1 ? `【警告】你已经${this.consecutiveNoSleepDays}天没睡觉了，请立即SLEEP回家睡觉！` : ''}
-${isNight ? '【深夜】现在就是深夜，请使用SLEEP行动回家休息！' : ''}
+${this.consecutiveNoSleepDays >= 1 ? `【警告】你已经${this.consecutiveNoSleepDays}天没睡觉了，请立即SLEEP回家睡觉！` : ""}
+${isNight ? "【深夜】现在就是深夜，请使用SLEEP行动回家休息！" : ""}
 
-${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY行动购买食物恢复饱腹。' : ''}
+${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY行动购买食物恢复饱腹。" : ""}
 
 如果没有特定目标位置，可以随机移动到附近位置。`;
 
     try {
       console.log(`[${this.name}] 正在请求LLM决策...`);
       const response = await this.llm.chat([
-        { role: 'system', content: `你是${this.name}，一个生活在AI生态小镇的居民。请根据你的性格和记忆做出自然的行为决定。只输出JSON，不要其他解释。` },
-        { role: 'user', content: prompt }
+        {
+          role: "system",
+          content: `你是${this.name}，一个生活在AI生态小镇的居民。请根据你的性格和记忆做出自然的行为决定。只输出JSON，不要其他解释。`,
+        },
+        { role: "user", content: prompt },
       ]);
       console.log(`[${this.name}] LLM响应:`, response);
 
@@ -292,59 +317,65 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
       } catch (e) {
         // 如果解析失败，使用默认行为
         console.warn(`[${this.name}] 解析决策失败，使用默认:`, response);
-        decision = { action: 'WAIT', description: response.trim() };
+        decision = { action: "WAIT", description: response.trim() };
       }
 
       // 根据决策类型构建行动
-      const actionType = decision.action?.toUpperCase() || 'WAIT';
+      const actionType = decision.action?.toUpperCase() || "WAIT";
 
-      if (actionType === 'MOVE' && decision.targetX !== undefined && decision.targetY !== undefined) {
+      if (
+        actionType === "MOVE" &&
+        decision.targetX !== undefined &&
+        decision.targetY !== undefined
+      ) {
         return {
           type: this.ActionType.MOVE,
-          description: decision.description || `移动到(${decision.targetX}, ${decision.targetY})`,
+          description:
+            decision.description ||
+            `移动到(${decision.targetX}, ${decision.targetY})`,
           targetPosition: { x: decision.targetX, y: decision.targetY },
-          timestamp: new Date()
+          timestamp: new Date(),
         };
-      } else if (actionType === 'TALK') {
+      } else if (actionType === "TALK") {
         return {
           type: this.ActionType.TALK,
-          description: decision.description || '与人交谈',
-          timestamp: new Date()
+          description: decision.description || "与人交谈",
+          timestamp: new Date(),
         };
-      } else if (actionType === 'SLEEP') {
+      } else if (actionType === "SLEEP") {
         return {
           type: this.ActionType.SLEEP,
-          description: decision.description || '休息',
-          timestamp: new Date()
+          description: decision.description || "休息",
+          timestamp: new Date(),
         };
-      } else if (actionType === 'WORK') {
+      } else if (actionType === "WORK") {
         return {
           type: this.ActionType.WORK,
-          description: decision.description || '工作',
+          description: decision.description || "工作",
           hourlyRate: decision.hourlyRate || 15,
-          timestamp: new Date()
+          timestamp: new Date(),
         };
-      } else if (actionType === 'BUY') {
+      } else if (actionType === "BUY") {
         console.log(`[${this.name}] LLM决策: BUY购买食物`);
         return {
           type: this.ActionType.BUY,
-          description: decision.description || '购买',
-          serviceName: decision.serviceName || '',
-          timestamp: new Date()
+          description: decision.description || "购买",
+          serviceName: decision.serviceName || "",
+          timestamp: new Date(),
         };
       } else {
         return {
           type: this.ActionType.WAIT,
-          description: decision.description || '等待',
-          timestamp: new Date()
+          description: decision.description || "等待",
+          timestamp: new Date(),
         };
       }
     } catch (e) {
-      console.error('决策失败:', e);
+      console.error("决策失败:", e);
       return {
         type: this.ActionType.WAIT,
-        description: '正在思考...',
-        timestamp: new Date()
+        description: "正在思考...",
+        timestamp: new Date(),
       };
     }
   }
@@ -357,21 +388,23 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     this.world = world;
 
     // 确保 action 是对象格式
-    if (typeof action === 'string') {
+    if (typeof action === "string") {
       this.currentAction = { description: action, timestamp: new Date() };
     } else {
       this.currentAction = action;
     }
-    this.status = 'busy';
+    this.status = "busy";
 
-    console.log(`[${this.name}] 执行行动: ${action.type || '未知类型'} - ${action.description || '无描述'}`);
+    console.log(
+      `[${this.name}] 执行行动: ${action.type || "未知类型"} - ${action.description || "无描述"}`,
+    );
 
     // 记录行动到记忆
-    const actionDesc = typeof action === 'object' ? action.description : action;
+    const actionDesc = typeof action === "object" ? action.description : action;
     await this.memory.addMemory(
       `我决定: ${actionDesc}`,
       this.MemoryType.ACTION,
-      6
+      6,
     );
 
     // 根据行动类型执行
@@ -402,16 +435,20 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
           }
 
           if (myHome) {
-            const distance = Math.abs(myHome.position.x - this.position.x) + Math.abs(myHome.position.y - this.position.y);
+            const distance =
+              Math.abs(myHome.position.x - this.position.x) +
+              Math.abs(myHome.position.y - this.position.y);
 
             if (distance <= 1) {
               // 已经在家附近，使用睡觉服务
               console.log(`[${this.name}] 已经到家，开始睡觉`);
-              const sleepService = myHome.services.find(s => s.name === '睡觉');
+              const sleepService = myHome.services.find(
+                (s) => s.name === "睡觉",
+              );
               if (sleepService) {
                 await this.interactWithObject(myHome, sleepService);
               } else {
-                this.status = 'sleeping';
+                this.status = "sleeping";
               }
             } else {
               // 不在家，先移动回家
@@ -419,16 +456,16 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
               await this.memory.addMemory(
                 `夜深了，准备回家睡觉`,
                 this.MemoryType.THOUGHT,
-                7
+                7,
               );
               this.startMoving({ ...myHome.position });
             }
           } else {
             console.warn(`[${this.name}] 未找到家，原地睡觉`);
-            this.status = 'sleeping';
+            this.status = "sleeping";
           }
         } else {
-          this.status = 'sleeping';
+          this.status = "sleeping";
         }
         break;
 
@@ -439,7 +476,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
         break;
 
       case this.ActionType.WORK:
-        this.status = 'working';
+        this.status = "working";
         break;
 
       case this.ActionType.BUY:
@@ -453,14 +490,20 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
           for (const obj of world.objects.values()) {
             if (!obj.services) continue;
 
-            const distance = Math.abs(obj.position.x - this.position.x) + Math.abs(obj.position.y - this.position.y);
+            const distance =
+              Math.abs(obj.position.x - this.position.x) +
+              Math.abs(obj.position.y - this.position.y);
             if (distance <= 5 && distance < minDistance) {
               // 找食物服务
-              const foodServices = obj.services.filter(s => s.fullness > 0 && this.greenPoints >= s.cost);
+              const foodServices = obj.services.filter(
+                (s) => s.fullness > 0 && this.greenPoints >= s.cost,
+              );
               if (foodServices.length > 0) {
                 // 如果指定了服务名，找匹配的
                 if (action.serviceName) {
-                  const matchedService = foodServices.find(s => s.name === action.serviceName);
+                  const matchedService = foodServices.find(
+                    (s) => s.name === action.serviceName,
+                  );
                   if (matchedService) {
                     bestBuilding = obj;
                     bestService = matchedService;
@@ -469,7 +512,9 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
                 } else {
                   // 否则找性价比最高的
                   bestBuilding = obj;
-                  bestService = foodServices.sort((a, b) => (b.fullness / b.cost) - (a.fullness / a.cost))[0];
+                  bestService = foodServices.sort(
+                    (a, b) => b.fullness / b.cost - a.fullness / a.cost,
+                  )[0];
                   minDistance = distance;
                 }
               }
@@ -477,48 +522,54 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
           }
 
           if (bestBuilding && bestService) {
-            console.log(`[${this.name}] 找到食物: ${bestService.name} at ${bestBuilding.name}，价格${bestService.cost}，恢复${bestService.fullness}饱腹`);
+            console.log(
+              `[${this.name}] 找到食物: ${bestService.name} at ${bestBuilding.name}，价格${bestService.cost}，恢复${bestService.fullness}饱腹`,
+            );
             await this.interactWithObject(bestBuilding, bestService);
             // 购买完成后重置状态
-            this.status = 'idle';
+            this.status = "idle";
             this.currentAction = null;
           } else {
             // 分析失败原因
             const cheapestFood = 5;
             if (this.greenPoints < cheapestFood) {
-              console.log(`[${this.name}] 积分不足(${this.greenPoints})，买不起食物，需要去工作赚钱`);
+              console.log(
+                `[${this.name}] 积分不足(${this.greenPoints})，买不起食物，需要去工作赚钱`,
+              );
               await this.memory.addMemory(
                 `很饿但是只有${this.greenPoints}积分，买不起食物，必须先工作赚钱`,
                 this.MemoryType.OBSERVATION,
-                8
+                8,
               );
               // 如果饥饿且没钱，自动转为工作状态
               if (this.fullness < 40) {
                 console.log(`[${this.name}] 饥饿且没钱，自动切换到WORK状态`);
-                this.status = 'working';
+                this.status = "working";
                 this.currentAction = {
                   type: this.ActionType.WORK,
-                  description: '工作赚钱买食物',
+                  description: "工作赚钱买食物",
                   hourlyRate: 15,
-                  timestamp: new Date()
+                  timestamp: new Date(),
                 };
                 return; // 提前返回，不重置为idle
               }
             } else {
               console.log(`[${this.name}] 附近没有卖食物的地方`);
               await this.memory.addMemory(
-                '附近没有卖食物的地方，需要去找咖啡馆或便利店',
+                "附近没有卖食物的地方，需要去找咖啡馆或便利店",
                 this.MemoryType.OBSERVATION,
-                6
+                6,
               );
             }
             // 购买失败也重置状态
-            this.status = 'idle';
+            this.status = "idle";
             this.currentAction = null;
           }
         } else {
-          console.warn(`[${this.name}] BUY行动失败：world或world.objects未定义`);
-          this.status = 'idle';
+          console.warn(
+            `[${this.name}] BUY行动失败：world或world.objects未定义`,
+          );
+          this.status = "idle";
           this.currentAction = null;
         }
         break;
@@ -537,24 +588,26 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
     // 使用A*计算路径
     const startPos = { x: this.position.x, y: this.position.y };
-    const path = PathFinder.findPath(
-      startPos,
-      targetPosition,
-      (x, y) => this.world ? this.world.isPassable(x, y) : true
+    const path = PathFinder.findPath(startPos, targetPosition, (x, y) =>
+      this.world ? this.world.isPassable(x, y) : true,
     );
 
     if (!path || path.length === 0) {
-      console.log(`[${this.name}] 无法找到到达目标(${targetPosition.x},${targetPosition.y})的路径`);
-      this.status = 'idle';
+      console.log(
+        `[${this.name}] 无法找到到达目标(${targetPosition.x},${targetPosition.y})的路径`,
+      );
+      this.status = "idle";
       return false;
     }
 
     this.currentPath = path;
     this.currentPathIndex = 0;
     this.moveTarget = targetPosition;
-    this.status = 'moving';
+    this.status = "moving";
 
-    console.log(`[${this.name}] A*寻路完成，路径长度: ${path.length}格，目标: (${targetPosition.x},${targetPosition.y})`);
+    console.log(
+      `[${this.name}] A*寻路完成，路径长度: ${path.length}格，目标: (${targetPosition.x},${targetPosition.y})`,
+    );
 
     // 启动移动循环，每 0.2 秒走一格
     this.moveInterval = setInterval(() => {
@@ -583,7 +636,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     this.moveTarget = null;
     this.currentPath = [];
     this.currentPathIndex = 0;
-    this.status = 'idle';
+    this.status = "idle";
   }
 
   /**
@@ -607,7 +660,11 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    * @returns {boolean} 是否还有剩余移动
    */
   moveOneStep() {
-    if (!this.moveTarget || !this.currentPath || this.currentPath.length === 0) {
+    if (
+      !this.moveTarget ||
+      !this.currentPath ||
+      this.currentPath.length === 0
+    ) {
       return false;
     }
 
@@ -619,13 +676,19 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
       this.moveTarget = null;
       this.currentPath = [];
       this.currentPathIndex = 0;
-      this.status = 'idle';
+      this.status = "idle";
       return false;
     }
 
     // 计算移动方向
     const dx = nextStep.x - this.position.x;
     const dy = nextStep.y - this.position.y;
+
+    // 更新朝向
+    if (dx > 0) this.facingDirection = "right";
+    else if (dx < 0) this.facingDirection = "left";
+    else if (dy > 0) this.facingDirection = "down";
+    else if (dy < 0) this.facingDirection = "up";
 
     // 再次检查目标位置是否可通行（动态障碍物）
     if (this.world && !this.world.isPassable(nextStep.x, nextStep.y)) {
@@ -635,13 +698,15 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
       const remainingPath = PathFinder.findPath(
         { x: this.position.x, y: this.position.y },
         this.moveTarget,
-        (x, y) => this.world ? this.world.isPassable(x, y) : true
+        (x, y) => (this.world ? this.world.isPassable(x, y) : true),
       );
 
       if (remainingPath && remainingPath.length > 0) {
         this.currentPath = remainingPath;
         this.currentPathIndex = 0;
-        console.log(`[${this.name}] 重新计算路径成功，新路径长度: ${remainingPath.length}`);
+        console.log(
+          `[${this.name}] 重新计算路径成功，新路径长度: ${remainingPath.length}`,
+        );
         return true; // 继续移动
       } else {
         console.log(`[${this.name}] 无法找到新路径，停止移动`);
@@ -658,27 +723,34 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     this.movesSinceLastDecision++;
 
     const remainingSteps = this.currentPath.length - this.currentPathIndex;
-    console.log(`[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余: ${remainingSteps}步，已走${this.movesSinceLastDecision}格`);
+    console.log(
+      `[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余: ${remainingSteps}步，已走${this.movesSinceLastDecision}格`,
+    );
 
     // 记录移动记忆
     this.memory.addMemory(
       `我移动到了位置(${this.position.x}, ${this.position.y})`,
       this.MemoryType.ACTION,
-      5
+      5,
     );
 
     // 检查是否到达目标
-    if (this.position.x === this.moveTarget.x && this.position.y === this.moveTarget.y) {
-      console.log(`[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})，共走${this.movesSinceLastDecision}格`);
+    if (
+      this.position.x === this.moveTarget.x &&
+      this.position.y === this.moveTarget.y
+    ) {
+      console.log(
+        `[${this.name}] 已到达目标位置 (${this.moveTarget.x},${this.moveTarget.y})，共走${this.movesSinceLastDecision}格`,
+      );
       this.moveTarget = null;
       this.currentPath = [];
       this.currentPathIndex = 0;
-      this.status = 'idle';
+      this.status = "idle";
       return false;
     }
 
     // 还有剩余移动
-    this.status = 'moving';
+    this.status = "moving";
     return true;
   }
 
@@ -692,7 +764,9 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
     // 已经走了50格，需要做新决策
     if (this.movesSinceLastDecision >= this.decisionInterval) {
-      console.log(`[${this.name}] 已走${this.movesSinceLastDecision}格，触发新决策`);
+      console.log(
+        `[${this.name}] 已走${this.movesSinceLastDecision}格，触发新决策`,
+      );
       return true;
     }
 
@@ -717,11 +791,11 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    * 与其他Agent对话
    */
   async converseWith(otherAgent, world) {
-    const conversationKey = [this.id, otherAgent.id].sort().join('-');
+    const conversationKey = [this.id, otherAgent.id].sort().join("-");
     const lastTalk = this.lastConversation.get(conversationKey);
 
     // 避免过于频繁的对话
-    if (lastTalk && (Date.now() - lastTalk.getTime()) < 5 * 60 * 1000) {
+    if (lastTalk && Date.now() - lastTalk.getTime() < 5 * 60 * 1000) {
       return;
     }
 
@@ -734,8 +808,8 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
     try {
       const response = await this.llm.chat([
-        { role: 'system', content: `你是${this.name}，${this.config.traits}` },
-        { role: 'user', content: prompt }
+        { role: "system", content: `你是${this.name}，${this.config.traits}` },
+        { role: "user", content: prompt },
       ]);
 
       // 记录对话
@@ -743,7 +817,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
         `我对${otherAgent.name}说: ${response}`,
         this.MemoryType.DIALOGUE,
         7,
-        { targetAgent: otherAgent.id }
+        { targetAgent: otherAgent.id },
       );
 
       // 更新最后对话时间
@@ -752,7 +826,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
       return response;
     } catch (e) {
-      console.error('对话失败:', e);
+      console.error("对话失败:", e);
     }
   }
 
@@ -764,23 +838,23 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
     try {
       const plan = await this.llm.chat([
-        { role: 'system', content: `你是${this.name}` },
-        { role: 'user', content: prompt }
+        { role: "system", content: `你是${this.name}` },
+        { role: "user", content: prompt },
       ]);
 
       this.currentPlan = {
         content: plan,
         created: new Date(),
-        type: 'DAILY'
+        type: "DAILY",
       };
 
       await this.memory.addMemory(
         `今日计划: ${plan}`,
         this.MemoryType.THOUGHT,
-        7
+        7,
       );
     } catch (e) {
-      console.error('创建计划失败:', e);
+      console.error("创建计划失败:", e);
     }
   }
 
@@ -789,13 +863,13 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    */
   getTimeContext(time) {
     const hour = time.getHours();
-    if (hour < 6) return '凌晨';
-    if (hour < 9) return '早晨';
-    if (hour < 12) return '上午';
-    if (hour < 14) return '中午';
-    if (hour < 18) return '下午';
-    if (hour < 22) return '晚上';
-    return '深夜';
+    if (hour < 6) return "凌晨";
+    if (hour < 9) return "早晨";
+    if (hour < 12) return "上午";
+    if (hour < 14) return "中午";
+    if (hour < 18) return "下午";
+    if (hour < 22) return "晚上";
+    return "深夜";
   }
 
   /**
@@ -803,7 +877,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    */
   getNearbyDescription() {
     if (this.nearbyAgents.size === 0) {
-      return '周围没有人';
+      return "周围没有人";
     }
     return `附近有${this.nearbyAgents.size}个人`;
   }
@@ -829,7 +903,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     return {
       status: this.status,
       currentAction: this.currentAction,
-      position: this.position
+      position: this.position,
     };
   }
 
@@ -847,7 +921,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
       health: this.health,
       greenPoints: this.greenPoints,
       fullness: this.fullness,
-      memory: this.memory.exportData()
+      memory: this.memory.exportData(),
     };
   }
 
@@ -857,7 +931,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
   static deserialize(data, llmClient) {
     const agent = new Agent(data.config, llmClient);
     agent.position = data.position;
-    agent.status = data.status || 'idle';
+    agent.status = data.status || "idle";
     agent.currentAction = data.currentAction || null;
     if (data.health) {
       agent.health = data.health;
@@ -884,7 +958,12 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    * @param {boolean} isWorking - 是否在工作
    * @param {boolean} isSleeping - 是否在睡觉
    */
-  updateSurvivalAttributes(gameMinutes, isMoving = false, isWorking = false, isSleeping = false) {
+  updateSurvivalAttributes(
+    gameMinutes,
+    isMoving = false,
+    isWorking = false,
+    isSleeping = false,
+  ) {
     const now = Date.now();
     const elapsedHours = gameMinutes / 60;
 
@@ -915,19 +994,26 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     } else if (isSleeping) {
       // 睡觉恢复健康
       const healthGain = elapsedHours * 10;
-      this.health.current = Math.min(this.health.max, this.health.current + healthGain);
+      this.health.current = Math.min(
+        this.health.max,
+        this.health.current + healthGain,
+      );
       // 重置上次睡觉时间
       this.lastSleepTime = now;
       this.consecutiveNoSleepDays = 0;
     } else if (this.fullness >= 80 && !isMoving && !isWorking) {
       // 饱腹且休息时，健康缓慢恢复
       const healthGain = elapsedHours * 1;
-      this.health.current = Math.min(this.health.max, this.health.current + healthGain);
+      this.health.current = Math.min(
+        this.health.max,
+        this.health.current + healthGain,
+      );
     }
 
     // 不睡觉惩罚机制
     const hoursSinceLastSleep = (now - this.lastSleepTime) / (1000 * 60 * 60); // 现实小时
-    const gameDaysSinceLastSleep = (hoursSinceLastSleep * (gameMinutes / 60)) / 24; // 游戏天
+    const gameDaysSinceLastSleep =
+      (hoursSinceLastSleep * (gameMinutes / 60)) / 24; // 游戏天
 
     if (gameDaysSinceLastSleep >= 1 && !isSleeping) {
       // 计算连续不睡觉天数（取整）
@@ -940,7 +1026,9 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
         if (noSleepDays >= 3) {
           // 连续3天不睡觉，健康归零
           sleepPenalty = this.health.current;
-          console.log(`[${this.name}] 连续${noSleepDays}天没有睡觉，健康值归零！`);
+          console.log(
+            `[${this.name}] 连续${noSleepDays}天没有睡觉，健康值归零！`,
+          );
         } else if (noSleepDays >= 2) {
           // 连续2天不睡觉，扣50健康
           sleepPenalty = 50;
@@ -957,7 +1045,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
           this.memory.addMemory(
             `已经连续${noSleepDays}天没有睡觉了，感觉非常疲惫，健康受损`,
             this.MemoryType.OBSERVATION,
-            9
+            9,
           );
         }
       }
@@ -965,7 +1053,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
 
     // 健康=0时进入昏迷状态
     if (this.health.current === 0) {
-      this.status = 'unconscious';
+      this.status = "unconscious";
     }
 
     this.lastSurvivalUpdate = now;
@@ -984,7 +1072,10 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
    * @param {number} amount - 恢复量
    */
   heal(amount) {
-    this.health.current = Math.min(this.health.max, this.health.current + amount);
+    this.health.current = Math.min(
+      this.health.max,
+      this.health.current + amount,
+    );
   }
 
   /**
@@ -1009,7 +1100,7 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
       await this.memory.addMemory(
         `想去${object.name}消费但积分不够`,
         this.MemoryType.OBSERVATION,
-        5
+        5,
       );
       return;
     }
@@ -1032,14 +1123,16 @@ ${canBuyFood ? '你现在就在有食物的地点附近，可以直接使用BUY�
     await this.memory.addMemory(
       `在${object.name}${actionDesc}，消耗${service.cost}积分`,
       this.MemoryType.ACTION,
-      6
+      6,
     );
 
-    console.log(`[${this.name}] 在${object.name}使用了${service.name}，剩余积分:${this.greenPoints}，饱腹:${this.fullness}，健康:${this.health.current}`);
+    console.log(
+      `[${this.name}] 在${object.name}使用了${service.name}，剩余积分:${this.greenPoints}，饱腹:${this.fullness}，健康:${this.health.current}`,
+    );
 
     // 如果是睡觉，改变状态
-    if (service.name === '睡觉') {
-      this.status = 'sleeping';
+    if (service.name === "睡觉") {
+      this.status = "sleeping";
     }
   }
 
