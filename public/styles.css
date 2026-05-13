@@ -265,17 +265,41 @@ body {
 .map-container {
   flex: 1;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
   padding: 2rem;
   background: rgba(0, 0, 0, 0.2);
+  cursor: grab;
 }
 
 #world-map {
+  position: absolute;
   border-radius: 8px;
   box-shadow: var(--shadow-lg);
-  cursor: crosshair;
+  cursor: inherit;
+  will-change: transform;
+}
+
+/* 缩略图 */
+.minimap-container {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 10;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+.minimap-container:hover {
+  opacity: 1;
+}
+
+#minimap {
+  display: block;
+  cursor: pointer;
 }
 
 /* 工具提示 */
@@ -1249,17 +1273,19 @@ body {
 }
 
 .toolbar-btn {
-  width: 36px;
-  height: 36px;
+  height: 32px;
+  padding: 0 0.75rem;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   border-radius: 6px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.8rem;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  color: var(--text-color);
+  white-space: nowrap;
 }
 
 .toolbar-btn:hover {
@@ -1271,6 +1297,60 @@ body {
   background: var(--primary-color);
   border-color: var(--primary-color);
   color: white;
+}
+
+.tile-size-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tile-size-input {
+  width: 56px;
+  height: 28px;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  color: var(--text-color);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.tile-size-unit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tile-size-presets {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: 0.25rem;
+}
+
+.btn-tiny {
+  height: 24px;
+  padding: 0 0.4rem;
+  font-size: 0.7rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.btn-tiny:hover {
+  border-color: var(--primary-color);
+}
+
+.paint-btn[data-paint="blocked"].active {
+  background: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.paint-btn[data-paint="passable"].active {
+  background: #2ecc71;
+  border-color: #2ecc71;
 }
 
 /* 地图编辑相关 */
@@ -1342,6 +1422,62 @@ body {
 
 .help-list li:last-child {
   border-bottom: none;
+}
+
+/* 区域列表 */
+.area-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 0.85rem;
+}
+
+.area-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.area-item.selected {
+  background: var(--primary-color);
+  color: white;
+}
+
+.area-item.selected-multi {
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--primary-color);
+  opacity: 0.85;
+}
+
+.area-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.area-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.area-pos {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.area-item.selected .area-pos {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.area-info {
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 /* 图片上传区域 */

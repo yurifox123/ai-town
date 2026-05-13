@@ -51,28 +51,37 @@
         <!-- 编辑工具栏 -->
         <div id="editor-toolbar" class="editor-toolbar hidden">
           <div class="toolbar-group">
-            <span class="toolbar-label">🛠️ 工具</span>
-            <button class="toolbar-btn active" data-tool="select" title="选择/移动">↖️</button>
-            <button class="toolbar-btn" data-tool="ground" title="绘制地面">🟫</button>
-            <button class="toolbar-btn" data-tool="path" title="绘制路径">🛤️</button>
-            <button class="toolbar-btn" data-tool="building" title="添加建筑">🏠</button>
-            <button class="toolbar-btn" data-tool="eraser" title="橡皮擦">🧹</button>
+            <span class="toolbar-label">工具</span>
+            <button class="toolbar-btn active" data-tool="select" title="选择区域">选择</button>
+            <button class="toolbar-btn" data-tool="pan" title="拖动视角">拖动</button>
+            <button class="toolbar-btn" data-tool="area" title="拖拽创建区域">区域</button>
+            <button class="toolbar-btn" data-tool="freehand" title="自由圈选创建区域">圈选</button>
+            <button class="toolbar-btn" data-tool="eraser" title="删除区域">删除</button>
           </div>
           <div class="toolbar-group">
-            <span class="toolbar-label">🎨 地面</span>
-            <button class="toolbar-btn terrain-btn active" data-terrain="grass" title="草地">🌱</button>
-            <button class="toolbar-btn terrain-btn" data-terrain="path" title="土路">🛤️</button>
-            <button class="toolbar-btn terrain-btn" data-terrain="water" title="水域">💧</button>
+            <span class="toolbar-label">画笔</span>
+            <button class="toolbar-btn paint-btn active" data-paint="blocked" title="不可通行">红色(不可通行)</button>
+            <button class="toolbar-btn paint-btn" data-paint="passable" title="可通行">蓝色(可通行)</button>
           </div>
           <div class="toolbar-group">
-            <span class="toolbar-label">🏗️ 建筑</span>
-            <button id="btn-editor-add-building" class="btn btn-small">➕ 新建建筑</button>
+            <span class="toolbar-label">地块</span>
+            <div class="tile-size-input-group">
+              <input type="number" id="tile-size-input" class="tile-size-input"
+                     value="48" min="8" max="256" step="1">
+              <span class="tile-size-unit">px</span>
+              <div class="tile-size-presets">
+                <button class="btn-tiny" data-tile="32">32</button>
+                <button class="btn-tiny" data-tile="48">48</button>
+                <button class="btn-tiny" data-tile="64">64</button>
+              </div>
+            </div>
           </div>
           <div class="toolbar-group">
-            <span class="toolbar-label">💾 操作</span>
-            <button id="btn-save-map" class="btn btn-small">💾 保存</button>
-            <button id="btn-load-map" class="btn btn-small">📂 加载</button>
-            <button id="btn-clear-map" class="btn btn-small btn-danger">🗑️ 清空</button>
+            <span class="toolbar-label">操作</span>
+            <button id="btn-save-map" class="btn btn-small">保存</button>
+            <button id="btn-load-map" class="btn btn-small">加载</button>
+            <button id="btn-merge-areas" class="btn btn-small">合并</button>
+            <button id="btn-clear-map" class="btn btn-small btn-danger">清空</button>
           </div>
           <input type="file" id="map-file-input" accept=".json" hidden>
         </div>
@@ -161,45 +170,54 @@
         <!-- 地图信息 -->
         <div class="panel">
           <div class="panel-header">
-            <h3>🗺️ 地图信息</h3>
+            <h3>地图信息</h3>
           </div>
           <div class="panel-body">
             <div class="info-row">
-              <span class="info-label">尺寸:</span>
-              <span id="map-dimensions">50×50</span>
+              <span class="info-label">网格:</span>
+              <span id="map-dimensions">32 x 21</span>
             </div>
             <div class="info-row">
-              <span class="info-label">建筑数:</span>
-              <span id="building-count">0</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">选中:</span>
-              <span id="selected-cell">无</span>
+              <span class="info-label">区域数:</span>
+              <span id="area-count">0</span>
             </div>
           </div>
         </div>
 
-        <!-- 选中建筑详情 -->
-        <div class="panel" id="editor-building-panel">
+        <!-- 区域列表 -->
+        <div class="panel">
           <div class="panel-header">
-            <h3>🏠 建筑属性</h3>
+            <h3>区域列表</h3>
           </div>
-          <div class="panel-body" id="editor-building-content">
-            <div class="empty-state">点击建筑进行编辑</div>
+          <div class="panel-body" id="editor-area-content">
+            <div class="empty-state">在地图上拖拽创建区域</div>
+          </div>
+        </div>
+
+        <!-- 区域属性 -->
+        <div class="panel">
+          <div class="panel-header">
+            <h3>区域属性</h3>
+          </div>
+          <div class="panel-body" id="editor-area-properties">
+            <div class="empty-state">点击区域查看属性</div>
           </div>
         </div>
 
         <!-- 操作说明 -->
         <div class="panel">
           <div class="panel-header">
-            <h3>💡 操作说明</h3>
+            <h3>操作说明</h3>
           </div>
           <div class="panel-body">
             <ul class="help-list">
-              <li>左键：使用选中工具</li>
-              <li>拖拽：移动建筑</li>
+              <li>选择工具：点击选中区域</li>
+              <li>区域工具：拖拽创建矩形区域</li>
+              <li>删除工具：点击删除区域</li>
+              <li>红色=不可通行 蓝色=可通行</li>
+              <li>Delete键：删除选中区域</li>
+              <li>Ctrl+Z/Y：撤销/重做</li>
               <li>滚轮：缩放地图</li>
-              <li>右键拖拽：平移视图</li>
             </ul>
           </div>
         </div>
@@ -360,66 +378,6 @@
           </form>
         </div>
       </div>
-    <!-- 编辑建筑弹窗 -->
-    <div id="edit-building-modal" class="modal hidden">
-      <div class="modal-overlay"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>🏠 编辑建筑</h2>
-          <button class="btn-close" id="btn-close-edit-building">×</button>
-        </div>
-        <div class="modal-body">
-          <form id="edit-building-form">
-            <input type="hidden" id="edit-building-original-id">
-            <div class="form-group">
-              <label for="edit-building-id">ID (唯一标识)</label>
-              <input type="text" id="edit-building-id" required placeholder="如: shop, library">
-            </div>
-            <div class="form-group">
-              <label for="edit-building-name">显示名称</label>
-              <input type="text" id="edit-building-name" required placeholder="如: 便利店">
-            </div>
-            <div class="form-group">
-              <label>贴图</label>
-              <div class="image-upload-area" id="edit-image-upload-area">
-                <input type="file" id="edit-building-image" accept="image/png,image/jpg,image/jpeg,image/webp" hidden>
-                <img id="edit-image-preview" class="image-preview hidden" alt="预览">
-                <div class="upload-placeholder" id="edit-upload-placeholder">
-                  <span class="upload-icon">🖼️</span>
-                  <span>点击或拖拽上传图片</span>
-                  <span class="upload-hint">支持 PNG, JPG, WEBP</span>
-                </div>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group half">
-                <label for="edit-building-width">宽度 (格)</label>
-                <input type="number" id="edit-building-width" min="1" max="10" value="3">
-              </div>
-              <div class="form-group half">
-                <label for="edit-building-height">高度 (格)</label>
-                <input type="number" id="edit-building-height" min="1" max="10" value="3">
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input type="checkbox" id="edit-building-obstacle" checked>
-                <span>🔒 作为障碍物（人物无法通过）</span>
-              </label>
-            </div>
-            <div class="form-group">
-              <label for="edit-building-description">描述</label>
-              <textarea id="edit-building-description" rows="2" placeholder="建筑描述..."></textarea>
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary">保存修改</button>
-              <button type="button" class="btn btn-danger" id="btn-delete-building">🗑️ 删除</button>
-              <button type="button" class="btn btn-secondary" id="btn-cancel-edit-building">取消</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
   </div>
 
   <script type="module" src="js/app.js"></script>

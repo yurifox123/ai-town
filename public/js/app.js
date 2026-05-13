@@ -16,24 +16,36 @@ import {
   ASSET_CONFIG,
 } from "./asset-config.js";
 
+// ========== 拖拽平移状态 ==========
+let isPanning = false;
+let panStartX = 0;
+let panStartY = 0;
+let panOffsetX = 0;
+let panOffsetY = 0;
+
+// 画布平移偏移（CSS transform）
+let canvasPanX = 0;
+let canvasPanY = 0;
+
 // ========== 动画状态管理 ==========
 // 每个 agent 的动画状态：{ frameIndex, lastFrameTime, direction, action, lastAction }
 const agentAnimState = new Map();
 
 // ========== 配置 ==========
 const CONFIG = {
-  MAP_CELL_SIZE: 16,
-  MAP_GRID_COLOR: "#1e3a5f",
+  MAP_CELL_SIZE: 48,
+  MAP_IMAGE_WIDTH: 1536,
+  MAP_IMAGE_HEIGHT: 1024,
+  MAP_TOP_OFFSET: 28, // 地图顶部裁剪像素
   AGENT_COLOR: "#e94560",
   BUILDING_COLOR: "#4a90d9",
   AREA_COLOR: "#28a745",
   REFRESH_RATE: 1000 / 30,
   TICK_INTERVAL: 5000,
-  WORLD_WIDTH: 50,
-  WORLD_HEIGHT: 50,
-  TIME_SCALE: 5, // 1秒现实时间 = 5分钟游戏时间
-  SHOW_GRID: false,
+  TIME_SCALE: 5,
   SPRITE_SCALE: 1.0,
+  // 缩放状态
+  zoom: 1.0,
 };
 
 // ========== Agent 模板 ==========
@@ -99,11 +111,18 @@ const state = {
   hoveredElement: null,
   // 编辑模式状态
   isEditMode: false,
-  editorTool: "select", // select, ground, path, building, eraser
-  editorTerrain: "grass", // grass, path, water
-  editorSelectedBuilding: null,
-  editorBuildings: [], // 编辑中的建筑列表
-  mapData: null, // 地图数据 (地面类型)
+  editorTool: "select", // select, area, eraser
+  paintMode: "blocked", // blocked=红色不可通行, passable=蓝色可通行
+  // 区域编辑状态
+  areas: [],
+  editorSelectedArea: null,
+  selectedAreas: [],
+  paintingArea: null, // area being created during brush drag
+  paintedCells: new Set(), // "x,y" cells painted in current gesture
+  affectedCells: new Set(), // cells touched in current gesture (for toggle)
+  paintGestureMode: "paint", // "paint" or "erase"
+  isFreehand: false,
+  freehandPath: [],
 };
 
 // ========== DOM 元素缓存 ==========
@@ -112,16 +131,7 @@ let elements = {};
 // 编辑模式状态
 let isDragging = false;
 let isPainting = false;
-let dragBuilding = null;
-let dragOffset = { x: 0, y: 0 };
 let lastPaintedCell = null;
-
-// 撤销/重做历史
-const editHistory = {
-  stack: [],
-  index: -1,
-  maxSize: 50,
-};
 
 // 对话气泡管理
 const dialogueBubbles = new Map();
@@ -156,8 +166,9 @@ async function init() {
 
   // 初始化世界模拟器
   state.world = new WorldSimulator(
-    CONFIG.WORLD_WIDTH,
-    CONFIG.WORLD_HEIGHT,
+    CONFIG.MAP_CELL_SIZE,
+    CONFIG.MAP_IMAGE_WIDTH,
+    CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET,
     CONFIG.TIME_SCALE,
     state.llm,
   );
@@ -175,11 +186,41 @@ async function init() {
   // 开始渲染循环
   startRenderLoop();
 
-  // 添加默认 Agent
-  await addDefaultAgents();
+  // 添加默认 Agent（不阻塞初始化）
+  addDefaultAgents().catch((err) => {
+    console.error("添加默认 Agent 失败:", err);
+  });
 
-  // 初始化编辑模式（在 world 数据准备好后）
+  // 初始化编辑模式
   initEditor();
+
+  // 加载默认地图数据
+  fetch("/assets/default-map.json")
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.tileSize) {
+        CONFIG.MAP_CELL_SIZE = data.tileSize;
+        const tileInput = document.getElementById("tile-size-input");
+        if (tileInput) tileInput.value = data.tileSize;
+      }
+      if (data.areas && data.areas.length > 0) {
+        state.areas = data.areas.map((a) => {
+          if (a.cells) return a;
+          if (a.w != null && a.h != null) {
+            return {
+              id: a.id,
+              name: a.name || "",
+              cells: rectToCells(a.x, a.y, a.w, a.h),
+              isBlocked: a.isBlocked,
+            };
+          }
+          return a;
+        });
+        state.world.setAreas(state.areas);
+        saveAreaHistory();
+      }
+    })
+    .catch(() => {});
 
   // 更新 UI
   updateUI();
@@ -357,20 +398,31 @@ function initCanvas() {
   state.canvas = document.getElementById("world-map");
   state.ctx = state.canvas.getContext("2d");
 
+  // Canvas尺寸 = 地图图片尺寸（减去顶部裁剪）
+  const effectiveH = CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET;
+  state.canvas.width = CONFIG.MAP_IMAGE_WIDTH;
+  state.canvas.height = effectiveH;
+
+  // 适配容器
   const container = state.canvas.parentElement;
+  container.style.cursor = "grab";
   const maxWidth = container.clientWidth - 40;
   const maxHeight = container.clientHeight - 40;
+  const scale = Math.min(
+    maxWidth / CONFIG.MAP_IMAGE_WIDTH,
+    maxHeight / effectiveH,
+    2.5,
+  );
+  CONFIG.zoom = scale;
 
-  const cellSize = CONFIG.MAP_CELL_SIZE;
-  const width = CONFIG.WORLD_WIDTH * cellSize;
-  const height = CONFIG.WORLD_HEIGHT * cellSize;
+  state.canvas.style.width = `${CONFIG.MAP_IMAGE_WIDTH * scale}px`;
+  state.canvas.style.height = `${effectiveH * scale}px`;
 
-  const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+  // 初始居中
+  applyCanvasTransform();
 
-  state.canvas.width = width;
-  state.canvas.height = height;
-  state.canvas.style.width = `${width * scale}px`;
-  state.canvas.style.height = `${height * scale}px`;
+  // 创建缩略图
+  createMinimap();
 
   // 画布交互
   state.canvas.addEventListener("mousemove", handleMouseMove);
@@ -380,12 +432,30 @@ function initCanvas() {
   state.canvas.addEventListener("mouseleave", () => {
     hideTooltip();
     state.hoveredElement = null;
+    // Finalize area brush if mouse leaves canvas
+    if (state.paintingArea) {
+      if (state.paintingArea.cells.length > 0) saveAreaHistory();
+      else {
+        const idx = state.areas.indexOf(state.paintingArea);
+        if (idx >= 0) state.areas.splice(idx, 1);
+        state.world.setAreas(state.areas);
+        renderAreaListInEditor();
+      }
+      state.paintingArea = null;
+      state.paintedCells = new Set();
+      state.affectedCells = new Set();
+    }
     isPainting = false;
     isDragging = false;
     dragBuilding = null;
+    if (isPanning) {
+      isPanning = false;
+      state.canvas.parentElement.style.cursor = "grab";
+    }
   });
+  state.canvas.addEventListener("wheel", handleCanvasWheel, { passive: false });
 
-  // 键盘事件（撤销/重做）
+  // 键盘事件
   document.addEventListener("keydown", handleEditorKeyDown);
 }
 
@@ -398,397 +468,691 @@ function startRenderLoop() {
   render();
 }
 
+// ========== 缩略图 ==========
+function createMinimap() {
+  const container = state.canvas.parentElement;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "minimap-container";
+
+  const minimapCanvas = document.createElement("canvas");
+  minimapCanvas.id = "minimap";
+  minimapCanvas.width = 200;
+  minimapCanvas.height = Math.round(
+    200 *
+      ((CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET) /
+        CONFIG.MAP_IMAGE_WIDTH),
+  );
+
+  wrapper.appendChild(minimapCanvas);
+  container.appendChild(wrapper);
+
+  state.minimapCanvas = minimapCanvas;
+  state.minimapCtx = minimapCanvas.getContext("2d");
+
+  drawMinimapBackground();
+
+  minimapCanvas.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    handleMinimapClick(e);
+  });
+  minimapCanvas.addEventListener("mousemove", (e) => {
+    if (e.buttons === 1) {
+      e.stopPropagation();
+      handleMinimapClick(e);
+    }
+  });
+}
+
+function drawMinimapBackground() {
+  const ctx = state.minimapCtx;
+  const w = state.minimapCanvas.width;
+  const h = state.minimapCanvas.height;
+  const mapImage = imageLoader.getImage("/assets/map.png");
+  if (mapImage) {
+    ctx.drawImage(mapImage, 0, 0, w, h);
+  } else {
+    ctx.fillStyle = "#2b1f3e";
+    ctx.fillRect(0, 0, w, h);
+  }
+}
+
+function updateMinimapViewport() {
+  if (!state.minimapCtx) return;
+  const ctx = state.minimapCtx;
+  const container = state.canvas.parentElement;
+  const mw = state.minimapCanvas.width;
+  const mh = state.minimapCanvas.height;
+
+  drawMinimapBackground();
+
+  const scaleX = mw / CONFIG.MAP_IMAGE_WIDTH;
+  const scaleY = mh / (CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET);
+
+  // 视口在画布像素坐标中的位置
+  const viewLeftPx = -canvasPanX / CONFIG.zoom;
+  const viewTopPx = -canvasPanY / CONFIG.zoom;
+  const viewWidthPx = container.clientWidth / CONFIG.zoom;
+  const viewHeightPx = container.clientHeight / CONFIG.zoom;
+
+  // 转换到缩略图坐标
+  const viewLeft = viewLeftPx * scaleX;
+  const viewTop = viewTopPx * scaleY;
+  const viewWidth = viewWidthPx * scaleX;
+  const viewHeight = viewHeightPx * scaleY;
+
+  // 半透明遮罩
+  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+  ctx.fillRect(0, 0, mw, mh);
+
+  // 清除视口区域（露出地图）
+  ctx.clearRect(viewLeft, viewTop, viewWidth, viewHeight);
+
+  // 视口边框
+  ctx.strokeStyle = "#e94560";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(viewLeft, viewTop, viewWidth, viewHeight);
+
+  // 绘制 agent 位置点
+  if (state.world) {
+    const worldState = state.world.getWorldState();
+    for (const agent of worldState.agents.values()) {
+      const ax = agent.position.x * CONFIG.MAP_CELL_SIZE * scaleX;
+      const ay = agent.position.y * CONFIG.MAP_CELL_SIZE * scaleY;
+      ctx.fillStyle = "#28a745";
+      ctx.beginPath();
+      ctx.arc(ax, ay, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function handleMinimapClick(e) {
+  const rect = state.minimapCanvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) / rect.width;
+  const clickY = (e.clientY - rect.top) / rect.height;
+
+  const container = state.canvas.parentElement;
+  const canvasDisplayW = CONFIG.MAP_IMAGE_WIDTH * CONFIG.zoom;
+  const canvasDisplayH = CONFIG.MAP_IMAGE_HEIGHT * CONFIG.zoom;
+
+  // 点击位置对应的画布像素 → 居中
+  canvasPanX = container.clientWidth / 2 - clickX * canvasDisplayW;
+  canvasPanY = container.clientHeight / 2 - clickY * canvasDisplayH;
+
+  updateCanvasTransform();
+  updateMinimapViewport();
+}
+
 // ========== 地图绘制 ==========
 function drawMap() {
   if (!state.ctx) return;
 
   const ctx = state.ctx;
   const cellSize = CONFIG.MAP_CELL_SIZE;
-  const width = CONFIG.WORLD_WIDTH;
-  const height = CONFIG.WORLD_HEIGHT;
 
-  // 编辑模式下使用 mapData 绘制地面
-  if (state.isEditMode && state.mapData) {
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const terrain = state.mapData[y]?.[x] || "grass";
-        drawTerrain(ctx, x, y, terrain, cellSize);
-      }
-    }
+  // 1. 绘制地图背景图片（去掉顶部28像素）
+  const mapImage = imageLoader.getImage("/assets/map.png");
+  const effectiveH = CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET;
+  if (mapImage) {
+    ctx.drawImage(
+      mapImage,
+      0,
+      CONFIG.MAP_TOP_OFFSET,
+      CONFIG.MAP_IMAGE_WIDTH,
+      effectiveH,
+      0,
+      0,
+      CONFIG.MAP_IMAGE_WIDTH,
+      effectiveH,
+    );
   } else {
-    // 正常模式使用草地纹理
-    const grassImage = imageLoader.getImage("/assets/tiles/grass.png");
-    if (grassImage) {
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          ctx.drawImage(
-            grassImage,
-            x * cellSize,
-            y * cellSize,
-            cellSize,
-            cellSize,
-          );
-        }
-      }
-    } else {
-      ctx.fillStyle = "#0d1b2a";
-      ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
-    }
+    ctx.fillStyle = "#2b1f3e";
+    ctx.fillRect(0, 0, CONFIG.MAP_IMAGE_WIDTH, effectiveH);
   }
 
-  // 绘制网格
-  if (CONFIG.SHOW_GRID || state.isEditMode) {
-    ctx.strokeStyle = state.isEditMode
-      ? "rgba(255, 255, 255, 0.2)"
-      : CONFIG.MAP_GRID_COLOR;
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    for (let x = 0; x <= width; x++) {
-      ctx.moveTo(x * cellSize, 0);
-      ctx.lineTo(x * cellSize, height * cellSize);
-    }
-    for (let y = 0; y <= height; y++) {
-      ctx.moveTo(0, y * cellSize);
-      ctx.lineTo(width * cellSize, y * cellSize);
-    }
-    ctx.stroke();
-  }
-
-  // 编辑模式下绘制编辑中的建筑
+  // 2. 编辑模式：绘制网格线
   if (state.isEditMode) {
-    for (const building of state.editorBuildings) {
-      drawEditorBuilding(ctx, building, cellSize);
-    }
-  } else {
-    // 正常模式绘制世界中的物体
-    const worldState = state.world.getWorldState();
+    drawGridOverlay(ctx);
+  }
 
-    // 绘制地形（围墙、河流、大门、桥梁）
-    if (worldState.getTerrainMap) {
-      const terrainMap = worldState.getTerrainMap();
-      console.log("地形数量:", terrainMap.size);
-      if (terrainMap.size > 0) {
-        for (const [key, terrain] of terrainMap) {
-          const [tx, ty] = key.split(",").map(Number);
-          drawTerrainTile(ctx, tx, ty, terrain, cellSize);
+  // 3. 绘制区域覆盖层（红=不可通行, 蓝=可通行）- 仅编辑模式
+  if (state.isEditMode) {
+    drawAreaOverlays(ctx);
+  }
+
+  // 4. 绘制建筑/对象
+  const worldState = state.world.getWorldState();
+  for (const obj of worldState.objects.values()) {
+    drawObject(ctx, obj, cellSize);
+  }
+
+  // 5. 绘制 Agent
+  for (const agentState of worldState.agents.values()) {
+    drawAgent(ctx, agentState, cellSize);
+  }
+
+  // 6. 更新缩略图视口
+  updateMinimapViewport();
+}
+
+// ========== 网格覆盖层 ==========
+function drawGridOverlay(ctx) {
+  const ts = CONFIG.MAP_CELL_SIZE;
+  const cols = Math.floor(CONFIG.MAP_IMAGE_WIDTH / ts);
+  const effectiveH = CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET;
+  const rows = Math.floor(effectiveH / ts);
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  for (let x = 0; x <= cols; x++) {
+    ctx.moveTo(x * ts, 0);
+    ctx.lineTo(x * ts, effectiveH);
+  }
+  for (let y = 0; y <= rows; y++) {
+    ctx.moveTo(0, y * ts);
+    ctx.lineTo(CONFIG.MAP_IMAGE_WIDTH, y * ts);
+  }
+  ctx.stroke();
+}
+
+// ========== 区域覆盖层 ==========
+function drawAreaOverlays(ctx) {
+  const ts = CONFIG.MAP_CELL_SIZE;
+  const areas = state.world.getAreas();
+
+  for (const area of areas) {
+    const isMultiSelected = state.selectedAreas.some((sa) => sa.id === area.id);
+    const fillColor = area.isBlocked
+      ? "rgba(231, 76, 60, 0.25)"
+      : "rgba(46, 204, 113, 0.15)";
+
+    // 填充每个格子
+    ctx.fillStyle = fillColor;
+    for (const c of area.cells) {
+      ctx.fillRect(c.x * ts, c.y * ts, ts, ts);
+    }
+
+    // 边框：只画外边缘格子的外边线
+    const strokeColor = isMultiSelected
+      ? "#f1c40f"
+      : area.isBlocked
+        ? "#e74c3c"
+        : "#2ecc71";
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = isMultiSelected ? 3 : 2;
+    const cellSet = new Set(area.cells.map((c) => `${c.x},${c.y}`));
+    for (const c of area.cells) {
+      const px = c.x * ts;
+      const py = c.y * ts;
+      if (!cellSet.has(`${c.x},${c.y - 1}`)) {
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + ts, py);
+        ctx.stroke();
+      }
+      if (!cellSet.has(`${c.x},${c.y + 1}`)) {
+        ctx.beginPath();
+        ctx.moveTo(px, py + ts);
+        ctx.lineTo(px + ts, py + ts);
+        ctx.stroke();
+      }
+      if (!cellSet.has(`${c.x - 1},${c.y}`)) {
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px, py + ts);
+        ctx.stroke();
+      }
+      if (!cellSet.has(`${c.x + 1},${c.y}`)) {
+        ctx.beginPath();
+        ctx.moveTo(px + ts, py);
+        ctx.lineTo(px + ts, py + ts);
+        ctx.stroke();
+      }
+    }
+
+    // 名称标签（放在包围盒中心）
+    if (area.name) {
+      const bbox = computeAreaBBox(area);
+      const cx = (bbox.x + bbox.w / 2) * ts;
+      const cy = (bbox.y + bbox.h / 2) * ts;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      const nameWidth = ctx.measureText(area.name).width + 12;
+      ctx.fillRect(cx - nameWidth / 2, cy - 9, nameWidth, 18);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 11px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(area.name, cx, cy + 4);
+    }
+  }
+
+  // 编辑模式：绘制圈选路径
+  if (state.isEditMode && state.isFreehand && state.freehandPath.length > 0) {
+    const color = state.paintMode === "blocked" ? "#e74c3c" : "#2ecc71";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    for (const p of state.freehandPath) {
+      ctx.strokeRect(p.x * ts + 1, p.y * ts + 1, ts - 2, ts - 2);
+    }
+  }
+}
+
+// ========== 坐标转换 ==========
+function screenToGrid(e) {
+  const rect = state.canvas.getBoundingClientRect();
+  const scaleX = state.canvas.width / rect.width;
+  const scaleY = state.canvas.height / rect.height;
+  const pixelX = (e.clientX - rect.left) * scaleX;
+  const pixelY = (e.clientY - rect.top) * scaleY;
+  return {
+    gridX: Math.floor(pixelX / CONFIG.MAP_CELL_SIZE),
+    gridY: Math.floor(pixelY / CONFIG.MAP_CELL_SIZE),
+    pixelX,
+    pixelY,
+  };
+}
+
+// ========== 画布变换 ==========
+function applyCanvasTransform() {
+  const container = state.canvas.parentElement;
+  const cw = container.clientWidth;
+  const ch = container.clientHeight;
+  const dw = CONFIG.MAP_IMAGE_WIDTH * CONFIG.zoom;
+  const dh = (CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET) * CONFIG.zoom;
+
+  // 默认居中
+  canvasPanX = (cw - dw) / 2;
+  canvasPanY = (ch - dh) / 2;
+
+  state.canvas.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px)`;
+}
+
+function updateCanvasTransform() {
+  state.canvas.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px)`;
+}
+
+// ========== 缩放 ==========
+function handleCanvasWheel(e) {
+  e.preventDefault();
+  const container = state.canvas.parentElement;
+  const containerRect = container.getBoundingClientRect();
+
+  // 光标在容器内的位置
+  const cx = e.clientX - containerRect.left;
+  const cy = e.clientY - containerRect.top;
+
+  // 光标下的画布像素坐标
+  const canvasPixelX = cx - canvasPanX;
+  const canvasPixelY = cy - canvasPanY;
+
+  const oldZoom = CONFIG.zoom;
+  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+  CONFIG.zoom = Math.max(0.3, Math.min(2.5, CONFIG.zoom + delta));
+
+  state.canvas.style.width = `${CONFIG.MAP_IMAGE_WIDTH * CONFIG.zoom}px`;
+  state.canvas.style.height = `${(CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET) * CONFIG.zoom}px`;
+
+  // 调整 pan 使光标下的画布像素保持不动
+  canvasPanX = cx - canvasPixelX * (CONFIG.zoom / oldZoom);
+  canvasPanY = cy - canvasPixelY * (CONFIG.zoom / oldZoom);
+
+  updateCanvasTransform();
+  updateMinimapViewport();
+}
+
+// ========== 区域辅助函数 ==========
+function computeAreaBBox(area) {
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const c of area.cells) {
+    minX = Math.min(minX, c.x);
+    minY = Math.min(minY, c.y);
+    maxX = Math.max(maxX, c.x);
+    maxY = Math.max(maxY, c.y);
+  }
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+function rectToCells(rx, ry, rw, rh) {
+  const cells = [];
+  for (let dy = 0; dy < rh; dy++) {
+    for (let dx = 0; dx < rw; dx++) {
+      cells.push({ x: rx + dx, y: ry + dy });
+    }
+  }
+  return cells;
+}
+
+// ========== 区域编辑器函数 ==========
+let _areaIdCounter = 0;
+function addArea(cells, name, isBlocked, skipHistory) {
+  const area = {
+    id: "area_" + Date.now() + "_" + ++_areaIdCounter,
+    name: name || "",
+    cells: cells,
+    isBlocked,
+  };
+  state.areas.push(area);
+  state.world.setAreas(state.areas);
+  renderAreaListInEditor();
+  if (!skipHistory) saveAreaHistory();
+}
+
+function selectAreaAt(gridX, gridY) {
+  for (let i = state.areas.length - 1; i >= 0; i--) {
+    const a = state.areas[i];
+    if (a.cells.some((c) => c.x === gridX && c.y === gridY)) {
+      state.editorSelectedArea = a;
+      renderAreaProperties(a);
+      return;
+    }
+  }
+  state.editorSelectedArea = null;
+  renderAreaProperties(null);
+}
+
+function eraseAreaAt(gridX, gridY) {
+  for (let i = state.areas.length - 1; i >= 0; i--) {
+    const a = state.areas[i];
+    const cellIdx = a.cells.findIndex((c) => c.x === gridX && c.y === gridY);
+    if (cellIdx >= 0) {
+      a.cells.splice(cellIdx, 1);
+      if (a.cells.length === 0) {
+        state.areas.splice(i, 1);
+      }
+      state.world.setAreas(state.areas);
+      state.editorSelectedArea = null;
+      renderAreaListInEditor();
+      renderAreaProperties(null);
+      saveAreaHistory();
+      return;
+    }
+  }
+}
+
+function mergeSelectedAreas() {
+  if (state.selectedAreas.length < 2) {
+    showHint("请先 Ctrl/Shift 多选至少2个区域");
+    return;
+  }
+
+  // 布尔并集：合并所有选中区域的格子
+  const mergedCells = new Map();
+  const firstArea = state.selectedAreas[0];
+
+  for (const a of state.selectedAreas) {
+    for (const c of a.cells) {
+      mergedCells.set(`${c.x},${c.y}`, c);
+    }
+  }
+
+  const cells = [...mergedCells.values()];
+
+  // 移除被合并的区域
+  const mergeIds = new Set(state.selectedAreas.map((a) => a.id));
+  state.areas = state.areas.filter((a) => !mergeIds.has(a.id));
+
+  // 添加合并后的区域
+  addArea(cells, firstArea.name, firstArea.isBlocked);
+
+  state.selectedAreas = [];
+  state.editorSelectedArea = null;
+  renderAreaListInEditor();
+  renderAreaProperties(null);
+  showHint(`已合并 ${cells.length} 个格子`);
+}
+
+function paintAtGrid(gridX, gridY) {
+  const isBlocked = state.paintMode === "blocked";
+  addArea([{ x: gridX, y: gridY }], "", isBlocked);
+}
+
+// 撤销/重做
+const editHistory = {
+  stack: [],
+  index: -1,
+  maxSize: 50,
+};
+
+function saveAreaHistory() {
+  const snapshot = JSON.parse(JSON.stringify(state.areas));
+  editHistory.stack = editHistory.stack.slice(0, editHistory.index + 1);
+  editHistory.stack.push(snapshot);
+  if (editHistory.stack.length > editHistory.maxSize) {
+    editHistory.stack.shift();
+  }
+  editHistory.index = editHistory.stack.length - 1;
+}
+
+function undo() {
+  if (editHistory.index > 0) {
+    editHistory.index--;
+    state.areas = JSON.parse(
+      JSON.stringify(editHistory.stack[editHistory.index]),
+    );
+    state.world.setAreas(state.areas);
+    renderAreaListInEditor();
+  }
+}
+
+function redo() {
+  if (editHistory.index < editHistory.stack.length - 1) {
+    editHistory.index++;
+    state.areas = JSON.parse(
+      JSON.stringify(editHistory.stack[editHistory.index]),
+    );
+    state.world.setAreas(state.areas);
+    renderAreaListInEditor();
+  }
+}
+
+// ========== 编辑器UI渲染 ==========
+function renderAreaListInEditor() {
+  const container = document.getElementById("editor-area-content");
+  if (!container) return;
+
+  if (state.areas.length === 0) {
+    container.innerHTML = '<div class="empty-state">在地图上拖拽创建区域</div>';
+    return;
+  }
+
+  container.innerHTML = state.areas
+    .map((a, i) => {
+      const bbox = computeAreaBBox(a);
+      return `
+    <div class="area-item ${state.editorSelectedArea?.id === a.id ? "selected" : ""} ${state.selectedAreas.some((sa) => sa.id === a.id) ? "selected-multi" : ""}"
+         data-area-index="${i}" data-area-id="${a.id}">
+      <span class="area-color" style="background:${a.isBlocked ? "#e74c3c" : "#2ecc71"}"></span>
+      <span class="area-name">${a.name || "未命名区域"}</span>
+      <span class="area-pos">${a.cells.length}格 (${bbox.w}x${bbox.h})</span>
+    </div>
+  `;
+    })
+    .join("");
+
+  // 绑定点击事件
+  if (state._lastAreaClickIndex === undefined) state._lastAreaClickIndex = -1;
+  container.querySelectorAll(".area-item").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      const idx = parseInt(el.dataset.areaIndex);
+      if (e.shiftKey && state._lastAreaClickIndex >= 0) {
+        // Shift+click: 范围选择
+        const start = Math.min(state._lastAreaClickIndex, idx);
+        const end = Math.max(state._lastAreaClickIndex, idx);
+        for (let i = start; i <= end; i++) {
+          if (!state.selectedAreas.some((sa) => sa.id === state.areas[i].id)) {
+            state.selectedAreas.push(state.areas[i]);
+          }
         }
-      }
-    } else {
-      console.log("getTerrainMap 方法不存在");
-    }
-
-    // 绘制路径
-    drawPaths(ctx, cellSize);
-
-    // 绘制建筑
-    for (const obj of worldState.objects.values()) {
-      drawObject(ctx, obj, cellSize);
-    }
-
-    // 绘制 Agent
-    for (const agentState of worldState.agents.values()) {
-      drawAgent(ctx, agentState, cellSize);
-    }
-  }
-}
-
-function drawTerrain(ctx, x, y, terrain, cellSize) {
-  const px = x * cellSize;
-  const py = y * cellSize;
-
-  switch (terrain) {
-    case "grass":
-      ctx.fillStyle = "#1a2f3d";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      // 添加一些纹理
-      if ((x + y) % 4 === 0) {
-        ctx.fillStyle = "#1e3545";
-        ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
-      }
-      break;
-    case "path":
-      ctx.fillStyle = "#c9b896";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      ctx.strokeStyle = "#b8a685";
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(px, py, cellSize, cellSize);
-      break;
-    case "water":
-      ctx.fillStyle = "#3b82f6";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-      ctx.fillRect(px, py + cellSize / 2, cellSize, cellSize / 2);
-      break;
-    default:
-      ctx.fillStyle = "#1a2f3d";
-      ctx.fillRect(px, py, cellSize, cellSize);
-  }
-}
-
-// 绘制地形瓦片（围墙、河流、大门、桥梁、栅栏）
-function drawTerrainTile(ctx, x, y, terrain, cellSize) {
-  const px = x * cellSize;
-  const py = y * cellSize;
-
-  switch (terrain) {
-    case "wall": {
-      // 判断是否是底部围墙（地图底部 y=49）
-      const isBottomWall = y === 49;
-      const bottomOffset = isBottomWall ? -9 : 0;
-      // 围墙基础偏移15px，底部围墙额外往上30px
-      const wy = py + 10 + bottomOffset;
-      // 绘制围墙 - 支持贴图
-      const wallTexture = imageLoader.getImage("tiles/wall.png");
-
-      if (wallTexture) {
-        // 使用贴图绘制围墙
-        const wallHeight = cellSize * 0.6;
-        const wallD = cellSize * 0.2;
-
-        // 绘制右侧面
-        ctx.fillStyle = "#b8b8b0";
-        ctx.beginPath();
-        ctx.moveTo(px + cellSize, wy - wallHeight);
-        ctx.lineTo(px + cellSize + wallD, wy - wallHeight + wallD);
-        ctx.lineTo(px + cellSize + wallD, wy + wallD);
-        ctx.lineTo(px + cellSize, wy);
-        ctx.closePath();
-        ctx.fill();
-
-        // 绘制墙顶
-        ctx.fillStyle = "#e8e8e3";
-        ctx.beginPath();
-        ctx.moveTo(px, wy - wallHeight);
-        ctx.lineTo(px + cellSize, wy - wallHeight);
-        ctx.lineTo(px + cellSize + wallD, wy - wallHeight + wallD);
-        ctx.lineTo(px + wallD, wy - wallHeight + wallD);
-        ctx.closePath();
-        ctx.fill();
-
-        // 绘制主墙面（贴图）
-        ctx.drawImage(
-          wallTexture,
-          px,
-          wy - wallHeight,
-          cellSize,
-          wallHeight + cellSize,
+        renderAreaListInEditor();
+      } else if (e.ctrlKey || e.metaKey) {
+        const areaId = el.dataset.areaId;
+        const existing = state.selectedAreas.findIndex(
+          (sa) => sa.id === areaId,
         );
+        if (existing >= 0) {
+          state.selectedAreas.splice(existing, 1);
+        } else {
+          state.selectedAreas.push(state.areas[idx]);
+        }
+        renderAreaListInEditor();
       } else {
-        // 默认绘制（无贴图时）- 大理石纹理
-        ctx.fillStyle = "#f5f5f0";
-        ctx.fillRect(px, wy, cellSize, cellSize);
-
-        ctx.fillStyle = "#e8e8e3";
-        ctx.beginPath();
-        ctx.moveTo(px, wy + cellSize * 0.3);
-        ctx.quadraticCurveTo(
-          px + cellSize * 0.5,
-          wy + cellSize * 0.1,
-          px + cellSize,
-          wy + cellSize * 0.4,
-        );
-        ctx.lineTo(px + cellSize, wy + cellSize * 0.6);
-        ctx.quadraticCurveTo(
-          px + cellSize * 0.5,
-          wy + cellSize * 0.3,
-          px,
-          wy + cellSize * 0.5,
-        );
-        ctx.fill();
-
-        ctx.strokeStyle = "#c0c0b8";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(px + cellSize * 0.2, wy);
-        ctx.quadraticCurveTo(
-          px + cellSize * 0.4,
-          wy + cellSize * 0.5,
-          px + cellSize * 0.3,
-          wy + cellSize,
-        );
-        ctx.stroke();
-
-        ctx.strokeStyle = "#d0d0c8";
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(px, wy + cellSize * 0.7);
-        ctx.quadraticCurveTo(
-          px + cellSize * 0.6,
-          wy + cellSize * 0.5,
-          px + cellSize,
-          wy + cellSize * 0.8,
-        );
-        ctx.stroke();
-
-        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-        ctx.fillRect(px, wy, cellSize, cellSize * 0.3);
-
-        ctx.strokeStyle = "#d4d4ce";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(px, wy, cellSize, cellSize);
+        state.selectedAreas = [];
+        state.editorSelectedArea = state.areas[idx];
+        renderAreaProperties(state.areas[idx]);
+        renderAreaListInEditor();
       }
-      break;
+      state._lastAreaClickIndex = idx;
+    });
+  });
+
+  // 更新计数
+  const countEl = document.getElementById("area-count");
+  if (countEl) countEl.textContent = state.areas.length;
+}
+
+function renderAreaProperties(area) {
+  const panel = document.getElementById("editor-area-properties");
+  if (!panel) return;
+
+  if (!area) {
+    panel.innerHTML = '<div class="empty-state">点击区域查看属性</div>';
+    return;
+  }
+
+  const bbox = computeAreaBBox(area);
+  panel.innerHTML = `
+    <div class="form-group">
+      <label>名称</label>
+      <input type="text" id="area-name-input" value="${area.name || ""}" placeholder="区域名称">
+    </div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="area-blocked-input" ${area.isBlocked ? "checked" : ""}>
+        <span>不可通行</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <span class="area-info">格子: ${area.cells.length}  包围盒: (${bbox.x}, ${bbox.y}) ${bbox.w}x${bbox.h}</span>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-small btn-danger" id="btn-delete-area">删除</button>
+    </div>
+  `;
+
+  // 绑定事件
+  document.getElementById("area-name-input")?.addEventListener("input", (e) => {
+    area.name = e.target.value;
+    state.world.setAreas(state.areas);
+    renderAreaListInEditor();
+  });
+
+  document
+    .getElementById("area-blocked-input")
+    ?.addEventListener("change", (e) => {
+      area.isBlocked = e.target.checked;
+      state.world.setAreas(state.areas);
+      renderAreaListInEditor();
+    });
+
+  document.getElementById("btn-delete-area")?.addEventListener("click", () => {
+    const idx = state.areas.indexOf(area);
+    if (idx >= 0) {
+      state.areas.splice(idx, 1);
+      state.world.setAreas(state.areas);
+      state.editorSelectedArea = null;
+      renderAreaListInEditor();
+      renderAreaProperties(null);
     }
+  });
+}
 
-    case "river":
-      // 绘制河流 - 蓝色水面
-      ctx.fillStyle = "#3498db";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      // 水波纹效果
-      ctx.fillStyle = "#5dade2";
-      ctx.fillRect(px + 2, py + 4, cellSize - 4, cellSize - 8);
-      break;
-
-    case "gate":
-      // 绘制大门 - 棕色木门，可通行
-      ctx.fillStyle = "#8b4513";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      // 门上的装饰
-      ctx.fillStyle = "#a0522d";
-      ctx.fillRect(px + 3, py + 3, cellSize - 6, cellSize - 6);
-      // 门把手
-      ctx.fillStyle = "#ffd700";
-      ctx.beginPath();
-      ctx.arc(px + cellSize - 6, py + cellSize / 2, 3, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-
-    case "bridge":
-      // 绘制桥梁 - 棕色木板
-      ctx.fillStyle = "#8b4513";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      // 木板纹理
-      ctx.fillStyle = "#a0522d";
-      ctx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
-      // 桥栏杆
-      ctx.strokeStyle = "#654321";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(px, py + 4);
-      ctx.lineTo(px + cellSize, py + 4);
-      ctx.moveTo(px, py + cellSize - 4);
-      ctx.lineTo(px + cellSize, py + cellSize - 4);
-      ctx.stroke();
-      break;
-
-    case "fence":
-      // 绘制栅栏 - 浅棕色木栅栏
-      ctx.fillStyle = "#d2b48c";
-      ctx.fillRect(px, py, cellSize, cellSize);
-      // 栅栏柱
-      ctx.fillStyle = "#8b7355";
-      ctx.fillRect(px + 2, py + 2, 4, cellSize - 4);
-      ctx.fillRect(px + cellSize - 6, py + 2, 4, cellSize - 4);
-      // 横栏
-      ctx.fillRect(px + 2, py + 6, cellSize - 4, 3);
-      ctx.fillRect(px + 2, py + cellSize - 9, cellSize - 4, 3);
-      break;
+function updateEditorInfo() {
+  const gridInfo = document.getElementById("map-dimensions");
+  if (gridInfo) {
+    const cols = Math.floor(CONFIG.MAP_IMAGE_WIDTH / CONFIG.MAP_CELL_SIZE);
+    const rows = Math.floor(
+      (CONFIG.MAP_IMAGE_HEIGHT - CONFIG.MAP_TOP_OFFSET) / CONFIG.MAP_CELL_SIZE,
+    );
+    gridInfo.textContent = `${cols} x ${rows}`;
   }
 }
 
-function drawEditorBuilding(ctx, building, cellSize) {
-  const x = building.x * cellSize;
-  const y = building.y * cellSize;
-  const w = building.width * cellSize;
-  const h = building.height * cellSize;
-
-  // 绘制建筑图片或占位符
-  if (building.image) {
-    const img = new Image();
-    img.src = building.image;
-    if (img.complete) {
-      ctx.drawImage(img, x, y, w, h);
-    } else {
-      drawBuildingPlaceholder(ctx, x, y, w, h, building);
-    }
-  } else {
-    drawBuildingPlaceholder(ctx, x, y, w, h, building);
-  }
-
-  // 选中高亮
-  if (state.editorSelectedBuilding?.id === building.id) {
-    ctx.strokeStyle = "#667eea";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
-  }
-
-  // 名称标签
-  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-  const nameWidth = ctx.measureText(building.name).width + 10;
-  ctx.fillRect(x + (w - nameWidth) / 2, y - 18, nameWidth, 16);
-  ctx.fillStyle = "#fff";
-  ctx.font = "9px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(building.name, x + w / 2, y - 6);
-}
-
-function drawBuildingPlaceholder(ctx, x, y, w, h, building) {
-  // 背景
-  ctx.fillStyle = building.obstacle
-    ? "rgba(231, 76, 60, 0.3)"
-    : "rgba(46, 204, 113, 0.3)";
-  ctx.fillRect(x, y, w, h);
-
-  // 边框
-  ctx.strokeStyle = building.obstacle ? "#e74c3c" : "#2ecc71";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, w, h);
-
-  // ID文字
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 14px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(building.id, x + w / 2, y + h / 2);
-}
-
-// ========== 路径绘制 ==========
-function drawPaths(ctx, cellSize) {
-  const pathImage = imageLoader.getImage("/assets/tiles/path.png");
-
-  // 笔直的道路网格 - 主街道
-  const roadWidth = 2; // 道路宽度2格
-
-  // 水平主干道 (y = 10, 25)
-  for (let x = 0; x < CONFIG.WORLD_WIDTH; x++) {
-    for (let w = 0; w < roadWidth; w++) {
-      // 主干道1
-      drawRoadTile(ctx, x, 10 + w, cellSize, pathImage);
-      // 主干道2
-      drawRoadTile(ctx, x, 25 + w, cellSize, pathImage);
-    }
-  }
-
-  // 垂直主干道 (x = 10, 25, 40)
-  for (let y = 0; y < CONFIG.WORLD_HEIGHT; y++) {
-    for (let w = 0; w < roadWidth; w++) {
-      // 主街道1
-      drawRoadTile(ctx, 10 + w, y, cellSize, pathImage);
-      // 主街道2
-      drawRoadTile(ctx, 25 + w, y, cellSize, pathImage);
-      // 主街道3
-      drawRoadTile(ctx, 40 + w, y, cellSize, pathImage);
-    }
+function updateAgentPositionsForNewCellSize(oldSize, newSize) {
+  if (!state.world) return;
+  const ratio = oldSize / newSize;
+  for (const agent of state.world.agents.values()) {
+    const pos = agent.getPosition();
+    agent.setPosition({
+      x: Math.round(pos.x * ratio),
+      y: Math.round(pos.y * ratio),
+    });
   }
 }
 
-function drawRoadTile(ctx, x, y, cellSize, pathImage) {
-  if (x >= CONFIG.WORLD_WIDTH || y >= CONFIG.WORLD_HEIGHT) return;
+// ========== 保存/加载 ==========
+function saveMapData() {
+  const data = {
+    version: "2.0",
+    tileSize: CONFIG.MAP_CELL_SIZE,
+    areas: state.areas,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "map-data.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  const px = x * cellSize;
-  const py = y * cellSize;
+function loadMapData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  if (pathImage) {
-    ctx.drawImage(pathImage, px, py, cellSize, cellSize);
-  } else {
-    // 道路底色
-    ctx.fillStyle = "#c9b896";
-    ctx.fillRect(px, py, cellSize, cellSize);
-    // 道路边缘线
-    ctx.strokeStyle = "#b8a685";
-    ctx.lineWidth = 0.5;
-    ctx.strokeRect(px, py, cellSize, cellSize);
-  }
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      const data = JSON.parse(event.target.result);
+      if (data.tileSize) {
+        CONFIG.MAP_CELL_SIZE = data.tileSize;
+        updateEditorInfo();
+      }
+      if (data.areas) {
+        // 兼容旧格式：把 {x,y,w,h} 转换为 {cells}
+        state.areas = data.areas.map((a) => {
+          if (a.cells) return a;
+          if (a.w != null && a.h != null) {
+            return {
+              id: a.id,
+              name: a.name || "",
+              cells: rectToCells(a.x, a.y, a.w, a.h),
+              isBlocked: a.isBlocked,
+            };
+          }
+          return a;
+        });
+        state.world.setAreas(state.areas);
+        renderAreaListInEditor();
+      }
+    } catch (err) {
+      console.error("加载地图数据失败:", err);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function clearMap() {
+  state.areas = [];
+  state.world.setAreas(state.areas);
+  state.editorSelectedArea = null;
+  renderAreaListInEditor();
+  renderAreaProperties(null);
 }
 
 // ========== 建筑绘制 ==========
@@ -890,10 +1254,10 @@ function drawAgent(ctx, agent, cellSize) {
     const framePath = `${ASSET_CONFIG.basePath}/${animConfig.basePath}${charKey}-${direction}-${action}-${state.frameIndex}.png`;
     const sprite = imageLoader.getImage(framePath);
 
-    const drawWidth = 100; // 固定角色宽度
+    const drawWidth = 38;
     const drawHeight = sprite
-      ? Math.round((100 * sprite.naturalHeight) / sprite.naturalWidth)
-      : Math.round((100 * 174) / 113);
+      ? Math.round((drawWidth * sprite.naturalHeight) / sprite.naturalWidth)
+      : Math.round((drawWidth * 174) / 113);
 
     // 绘制阴影
     ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
@@ -938,10 +1302,10 @@ function drawAgent(ctx, agent, cellSize) {
     const sprite = spritePath ? imageLoader.getImage(spritePath) : null;
 
     if (sprite) {
-      const drawWidth = 100; // 固定角色宽度
+      const drawWidth = 38;
       const drawHeight = sprite
-        ? Math.round((100 * sprite.naturalHeight) / sprite.naturalWidth)
-        : Math.round((100 * 174) / 113);
+        ? Math.round((drawWidth * sprite.naturalHeight) / sprite.naturalWidth)
+        : Math.round((drawWidth * 174) / 113);
 
       // 绘制阴影
       ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
@@ -1173,6 +1537,15 @@ function drawAgent(ctx, agent, cellSize) {
 
 // ========== 交互处理 ==========
 function handleMouseMove(e) {
+  // 拖拽平移
+  if (isPanning) {
+    canvasPanX = panOffsetX + (e.clientX - panStartX);
+    canvasPanY = panOffsetY + (e.clientY - panStartY);
+    updateCanvasTransform();
+    updateMinimapViewport();
+    return;
+  }
+
   const rect = state.canvas.getBoundingClientRect();
   const scaleX = state.canvas.width / rect.width;
   const scaleY = state.canvas.height / rect.height;
@@ -1180,49 +1553,37 @@ function handleMouseMove(e) {
   const mouseY = (e.clientY - rect.top) * scaleY;
   const cellSize = CONFIG.MAP_CELL_SIZE;
 
-  // 编辑模式下的拖拽和绘制
-  if (state.isEditMode) {
-    if (isDragging && dragBuilding) {
-      // 拖拽建筑
-      const gridX = Math.floor(mouseX / cellSize) - dragOffset.x;
-      const gridY = Math.floor(mouseY / cellSize) - dragOffset.y;
-
-      // 边界检查
-      dragBuilding.x = Math.max(
-        0,
-        Math.min(gridX, CONFIG.WORLD_WIDTH - dragBuilding.width),
-      );
-      dragBuilding.y = Math.max(
-        0,
-        Math.min(gridY, CONFIG.WORLD_HEIGHT - dragBuilding.height),
-      );
-      return;
-    }
-
-    if (isPainting && state.editorTool !== "select") {
-      // 连续绘制地形
-      const gridX = Math.floor(mouseX / cellSize);
-      const gridY = Math.floor(mouseY / cellSize);
-
-      // 避免重复绘制同一格
-      if (lastPaintedCell?.x !== gridX || lastPaintedCell?.y !== gridY) {
-        lastPaintedCell = { x: gridX, y: gridY };
-
-        if (
-          gridX >= 0 &&
-          gridX < CONFIG.WORLD_WIDTH &&
-          gridY >= 0 &&
-          gridY < CONFIG.WORLD_HEIGHT
-        ) {
-          if (state.editorTool === "ground" || state.editorTool === "path") {
-            paintTerrain(gridX, gridY, state.editorTerrain);
-          } else if (state.editorTool === "eraser") {
-            eraseAt(gridX, gridY);
-          }
+  // 编辑模式下画笔拖拽：根据手势模式添加或移除格子
+  if (state.isEditMode && state.paintingArea) {
+    const { gridX, gridY } = screenToGrid(e);
+    const key = `${gridX},${gridY}`;
+    if (!state.affectedCells.has(key)) {
+      state.affectedCells.add(key);
+      if (state.paintGestureMode === "paint") {
+        state.paintingArea.cells.push({ x: gridX, y: gridY });
+      } else {
+        state.paintingArea.cells = state.paintingArea.cells.filter(
+          (c) => !(c.x === gridX && c.y === gridY),
+        );
+        if (state.paintingArea.cells.length === 0) {
+          const idx = state.areas.indexOf(state.paintingArea);
+          if (idx >= 0) state.areas.splice(idx, 1);
+          state.paintingArea = null;
         }
       }
-      return;
+      state.world.setAreas(state.areas);
     }
+    return;
+  }
+
+  // 编辑模式下更新圈选路径
+  if (state.isEditMode && state.isFreehand) {
+    const { gridX, gridY } = screenToGrid(e);
+    const last = state.freehandPath[state.freehandPath.length - 1];
+    if (!last || last.x !== gridX || last.y !== gridY) {
+      state.freehandPath.push({ x: gridX, y: gridY });
+    }
+    return;
   }
 
   const worldState = state.world.getWorldState();
@@ -1278,9 +1639,8 @@ function handleMouseMove(e) {
 }
 
 function handleCanvasClick(e) {
-  // 编辑模式下使用编辑器点击处理
+  // 编辑模式下由 mousedown/mouseup 处理
   if (state.isEditMode) {
-    handleCanvasClickForEditor(e);
     return;
   }
 
@@ -1408,123 +1768,187 @@ function setupAgentCardListeners() {
   });
 }
 
-// ========== 编辑模式鼠标事件 ==========
+// ========== 鼠标事件 ==========
 function handleCanvasMouseDown(e) {
-  if (!state.isEditMode) return;
+  if (state.isEditMode) {
+    const { gridX, gridY } = screenToGrid(e);
 
-  const rect = state.canvas.getBoundingClientRect();
-  const scaleX = state.canvas.width / rect.width;
-  const scaleY = state.canvas.height / rect.height;
-  const mouseX = (e.clientX - rect.left) * scaleX;
-  const mouseY = (e.clientY - rect.top) * scaleY;
-  const cellSize = CONFIG.MAP_CELL_SIZE;
+    if (state.editorTool === "area") {
+      const key = `${gridX},${gridY}`;
+      // Check if clicking on an existing painted cell → erase mode
+      let targetArea = null;
+      for (let i = state.areas.length - 1; i >= 0; i--) {
+        if (state.areas[i].cells.some((c) => `${c.x},${c.y}` === key)) {
+          targetArea = state.areas[i];
+          break;
+        }
+      }
 
-  const gridX = Math.floor(mouseX / cellSize);
-  const gridY = Math.floor(mouseY / cellSize);
+      state.paintedCells = new Set([key]);
+      state.affectedCells = new Set([key]);
 
-  if (state.editorTool === "select") {
-    // 尝试选中并拖拽建筑
-    const building = state.editorBuildings?.find(
-      (b) =>
-        gridX >= b.x &&
-        gridX < b.x + b.width &&
-        gridY >= b.y &&
-        gridY < b.y + b.height,
-    );
-
-    if (building) {
-      isDragging = true;
-      dragBuilding = building;
-      dragOffset = { x: gridX - building.x, y: gridY - building.y };
-      state.editorSelectedBuilding = building;
-      renderBuildingListInEditor();
-      renderEditorBuildingProperties();
+      if (targetArea) {
+        // Erase mode: remove the clicked cell
+        state.paintGestureMode = "erase";
+        state.paintingArea = targetArea;
+        targetArea.cells = targetArea.cells.filter(
+          (c) => !(c.x === gridX && c.y === gridY),
+        );
+        if (targetArea.cells.length === 0) {
+          const idx = state.areas.indexOf(targetArea);
+          if (idx >= 0) state.areas.splice(idx, 1);
+          state.paintingArea = null;
+        }
+      } else {
+        // Paint mode: create new area
+        state.paintGestureMode = "paint";
+        const isBlocked = state.paintMode === "blocked";
+        const area = {
+          id: "area_" + Date.now() + "_" + ++_areaIdCounter,
+          name: "",
+          cells: [{ x: gridX, y: gridY }],
+          isBlocked,
+        };
+        state.areas.push(area);
+        state.paintingArea = area;
+      }
+      state.world.setAreas(state.areas);
+      renderAreaListInEditor();
+    } else if (state.editorTool === "freehand") {
+      state.isFreehand = true;
+      state.freehandPath = [{ x: gridX, y: gridY }];
+    } else if (state.editorTool === "select") {
+      selectAreaAt(gridX, gridY);
+    } else if (state.editorTool === "eraser") {
+      eraseAreaAt(gridX, gridY);
+    } else if (state.editorTool === "pan") {
+      isPanning = true;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      panOffsetX = canvasPanX;
+      panOffsetY = canvasPanY;
+      state.canvas.parentElement.style.cursor = "grabbing";
+      e.preventDefault();
     }
-  } else if (
-    state.editorTool === "ground" ||
-    state.editorTool === "path" ||
-    state.editorTool === "eraser"
-  ) {
-    // 开始连续绘制
-    isPainting = true;
-    lastPaintedCell = { x: gridX, y: gridY };
+    return;
+  }
 
-    // 保存历史记录
-    saveEditHistory();
-
-    if (state.editorTool === "eraser") {
-      eraseAt(gridX, gridY);
-    } else {
-      paintTerrain(gridX, gridY, state.editorTerrain);
-    }
+  // 非编辑模式：左键拖拽平移
+  if (e.button === 0) {
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panOffsetX = canvasPanX;
+    panOffsetY = canvasPanY;
+    state.canvas.parentElement.style.cursor = "grabbing";
+    e.preventDefault();
   }
 }
 
 function handleCanvasMouseUp(e) {
-  if (!state.isEditMode) return;
-
-  if (isDragging && dragBuilding) {
-    // 拖拽结束，保存位置变更
-    console.log(
-      `建筑 ${dragBuilding.name} 移动到 (${dragBuilding.x}, ${dragBuilding.y})`,
-    );
-    saveEditHistory();
+  if (isPanning) {
+    isPanning = false;
+    state.canvas.parentElement.style.cursor = "grab";
   }
 
-  isDragging = false;
-  isPainting = false;
-  dragBuilding = null;
-  lastPaintedCell = null;
-}
+  if (state.isEditMode) {
+    if (state.paintingArea) {
+      if (state.paintingArea.cells.length > 0) {
+        saveAreaHistory();
+      } else {
+        // No cells painted, remove the empty area
+        const idx = state.areas.indexOf(state.paintingArea);
+        if (idx >= 0) state.areas.splice(idx, 1);
+        state.world.setAreas(state.areas);
+        renderAreaListInEditor();
+      }
+      state.paintingArea = null;
+      state.paintedCells = new Set();
+      state.affectedCells = new Set();
+    }
 
-// ========== 撤销/重做功能 ==========
-function saveEditHistory() {
-  // 如果不在历史末尾，删除后面的历史
-  if (editHistory.index < editHistory.stack.length - 1) {
-    editHistory.stack = editHistory.stack.slice(0, editHistory.index + 1);
+    if (state.isFreehand && state.freehandPath.length > 0) {
+      const pathCells = new Set();
+      for (const p of state.freehandPath) {
+        pathCells.add(`${p.x},${p.y}`);
+      }
+
+      // 1) 直接相交：路径穿过区域格子
+      for (const area of state.areas) {
+        for (const c of area.cells) {
+          if (pathCells.has(`${c.x},${c.y}`)) {
+            if (!state.selectedAreas.some((sa) => sa.id === area.id)) {
+              state.selectedAreas.push(area);
+            }
+            break;
+          }
+        }
+      }
+
+      // 2) 洪水填充：检测路径围住的区域
+      if (state.areas.length > state.selectedAreas.length) {
+        let minX = Infinity,
+          minY = Infinity,
+          maxX = -Infinity,
+          maxY = -Infinity;
+        for (const p of state.freehandPath) {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        }
+        const blocked = new Set(pathCells);
+        const visited = new Set();
+        const queue = [];
+        // 从边界格子开始洪水填充
+        for (let x = minX; x <= maxX; x++) {
+          if (!blocked.has(`${x},${minY}`)) queue.push({ x, y: minY });
+          if (!blocked.has(`${x},${maxY}`)) queue.push({ x, y: maxY });
+        }
+        for (let y = minY; y <= maxY; y++) {
+          if (!blocked.has(`${minX},${y}`)) queue.push({ x: minX, y: y });
+          if (!blocked.has(`${maxX},${y}`)) queue.push({ x: maxX, y: y });
+        }
+        while (queue.length > 0) {
+          const { x, y } = queue.pop();
+          const key = `${x},${y}`;
+          if (visited.has(key) || blocked.has(key)) continue;
+          if (x < minX || x > maxX || y < minY || y > maxY) continue;
+          visited.add(key);
+          queue.push(
+            { x: x - 1, y },
+            { x: x + 1, y },
+            { x, y: y - 1 },
+            { x, y: y + 1 },
+          );
+        }
+        // 包围盒内未被洪水到达的格子 = 被围住的区域
+        const enclosedCells = new Set();
+        for (let y = minY; y <= maxY; y++) {
+          for (let x = minX; x <= maxX; x++) {
+            const key = `${x},${y}`;
+            if (!visited.has(key) && !blocked.has(key)) {
+              enclosedCells.add(key);
+            }
+          }
+        }
+        for (const area of state.areas) {
+          if (state.selectedAreas.some((sa) => sa.id === area.id)) continue;
+          for (const c of area.cells) {
+            if (enclosedCells.has(`${c.x},${c.y}`)) {
+              state.selectedAreas.push(area);
+              break;
+            }
+          }
+        }
+      }
+
+      state.isFreehand = false;
+      state.freehandPath = [];
+      renderAreaListInEditor();
+      showHint(`圈选了 ${state.selectedAreas.length} 个区域`);
+    }
   }
-
-  // 保存当前状态
-  const snapshot = {
-    mapData: state.mapData?.map((row) => [...row]),
-    buildings: state.editorBuildings?.map((b) => ({ ...b })),
-  };
-
-  editHistory.stack.push(snapshot);
-
-  // 限制历史记录大小
-  if (editHistory.stack.length > editHistory.maxSize) {
-    editHistory.stack.shift();
-  } else {
-    editHistory.index++;
-  }
-}
-
-function undo() {
-  if (editHistory.index > 0) {
-    editHistory.index--;
-    restoreFromHistory(editHistory.stack[editHistory.index]);
-    showHint("已撤销");
-  }
-}
-
-function redo() {
-  if (editHistory.index < editHistory.stack.length - 1) {
-    editHistory.index++;
-    restoreFromHistory(editHistory.stack[editHistory.index]);
-    showHint("已重做");
-  }
-}
-
-function restoreFromHistory(snapshot) {
-  if (snapshot.mapData) {
-    state.mapData = snapshot.mapData.map((row) => [...row]);
-  }
-  if (snapshot.buildings) {
-    state.editorBuildings = snapshot.buildings.map((b) => ({ ...b }));
-  }
-  renderBuildingListInEditor();
-  updateEditorInfo();
 }
 
 function handleEditorKeyDown(e) {
@@ -1541,19 +1965,15 @@ function handleEditorKeyDown(e) {
     }
   }
 
-  // Delete 键删除选中建筑
-  if (e.key === "Delete" && state.editorSelectedBuilding) {
-    const index = state.editorBuildings.findIndex(
-      (b) => b.id === state.editorSelectedBuilding.id,
-    );
-    if (index !== -1) {
-      saveEditHistory();
-      state.editorBuildings.splice(index, 1);
-      state.editorSelectedBuilding = null;
-      renderBuildingListInEditor();
-      renderEditorBuildingProperties();
-      updateEditorInfo();
-      showHint("建筑已删除");
+  // Delete 键删除选中区域
+  if (e.key === "Delete" && state.editorSelectedArea) {
+    const idx = state.areas.indexOf(state.editorSelectedArea);
+    if (idx >= 0) {
+      state.areas.splice(idx, 1);
+      state.world.setAreas(state.areas);
+      state.editorSelectedArea = null;
+      renderAreaListInEditor();
+      renderAreaProperties(null);
     }
   }
 }
@@ -1832,15 +2252,19 @@ function addEvent(event) {
 async function addDefaultAgents() {
   const positions = [
     { name: "xiaoming", x: 5, y: 5 },
-    { name: "xiaohong", x: 45, y: 35 },
-    { name: "xiaomi", x: 5, y: 35 },
-    { name: "xiaodong", x: 45, y: 5 },
+    { name: "xiaohong", x: 6, y: 5 },
+    { name: "xiaomi", x: 7, y: 5 },
+    { name: "xiaodong", x: 8, y: 5 },
   ];
 
   for (const pos of positions) {
     const template = agentTemplates[pos.name];
     if (template) {
-      await state.world.addAgent(template, { x: pos.x, y: pos.y });
+      try {
+        await state.world.addAgent(template, { x: pos.x, y: pos.y });
+      } catch (err) {
+        console.error(`添加 Agent ${pos.name} 失败:`, err);
+      }
     }
   }
 }
@@ -1908,90 +2332,11 @@ function hideModal(modalId) {
 
 // ========== 编辑模式功能 ==========
 function initEditor() {
-  // 初始化地图数据（默认全部草地）
-  initMapData();
-
-  // 从 world 中加载现有建筑
-  loadBuildingsFromWorld();
-
   // 设置编辑模式事件监听
   setupEditorListeners();
 
   // 保存初始历史状态
-  saveEditHistory();
-}
-
-function initMapData() {
-  // 创建二维数组存储地图数据
-  state.mapData = [];
-  for (let y = 0; y < CONFIG.WORLD_HEIGHT; y++) {
-    const row = [];
-    for (let x = 0; x < CONFIG.WORLD_WIDTH; x++) {
-      // 默认草地，某些区域设为路径
-      row.push("grass");
-    }
-    state.mapData.push(row);
-  }
-
-  // 设置一些默认路径
-  const pathPoints = [
-    { x: 10, y: 10 },
-    { x: 11, y: 10 },
-    { x: 12, y: 10 },
-    { x: 13, y: 10 },
-    { x: 20, y: 5 },
-    { x: 20, y: 6 },
-    { x: 20, y: 7 },
-    { x: 20, y: 8 },
-    { x: 20, y: 9 },
-    { x: 20, y: 10 },
-    { x: 20, y: 11 },
-    { x: 20, y: 12 },
-  ];
-
-  for (const p of pathPoints) {
-    if (p.x < CONFIG.WORLD_WIDTH && p.y < CONFIG.WORLD_HEIGHT) {
-      state.mapData[p.y][p.x] = "path";
-    }
-  }
-}
-
-function loadBuildingsFromWorld() {
-  // 从 world 中复制建筑数据
-  state.editorBuildings = [];
-
-  if (!state.world) {
-    console.warn("World 未初始化，无法加载建筑");
-    return;
-  }
-
-  try {
-    const worldState = state.world.getWorldState();
-    if (!worldState || !worldState.objects) {
-      console.warn("World 数据为空");
-      return;
-    }
-
-    for (const obj of worldState.objects.values()) {
-      if (!obj) continue;
-      state.editorBuildings.push({
-        id: obj.id || "unknown",
-        name: obj.name || "未命名",
-        type: obj.type || "building",
-        x: obj.position?.x || 0,
-        y: obj.position?.y || 0,
-        width: 3, // 默认3x3
-        height: 3,
-        obstacle: true,
-        description: obj.description || "",
-        image: null,
-      });
-    }
-
-    console.log(`从世界加载了 ${state.editorBuildings.length} 个建筑`);
-  } catch (err) {
-    console.error("加载建筑失败:", err);
-  }
+  saveAreaHistory();
 }
 
 function setupEditorListeners() {
@@ -1999,32 +2344,64 @@ function setupEditorListeners() {
   const modeToggle = document.getElementById("btn-mode-toggle");
   modeToggle?.addEventListener("click", toggleEditMode);
 
-  // 工具按钮
+  // 工具按钮（select, area, eraser）
   document.querySelectorAll(".toolbar-btn[data-tool]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       document
         .querySelectorAll(".toolbar-btn[data-tool]")
         .forEach((b) => b.classList.remove("active"));
-      e.target.classList.add("active");
-      state.editorTool = e.target.dataset.tool;
+      e.currentTarget.classList.add("active");
+      state.editorTool = e.currentTarget.dataset.tool;
+      // 更新光标
+      const container = state.canvas?.parentElement;
+      if (container) {
+        container.style.cursor =
+          state.editorTool === "pan" ? "grab" : "crosshair";
+      }
     });
   });
 
-  // 地形按钮
-  document.querySelectorAll(".toolbar-btn[data-terrain]").forEach((btn) => {
+  // Paint模式按钮（blocked/passable）
+  document.querySelectorAll(".toolbar-btn[data-paint]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       document
-        .querySelectorAll(".toolbar-btn[data-terrain]")
+        .querySelectorAll(".toolbar-btn[data-paint]")
         .forEach((b) => b.classList.remove("active"));
-      e.target.classList.add("active");
-      state.editorTerrain = e.target.dataset.terrain;
+      e.currentTarget.classList.add("active");
+      state.paintMode = e.currentTarget.dataset.paint;
     });
   });
 
-  // 新建建筑按钮
+  // 地块大小选择
+  // 地块大小快捷按钮
+  document.querySelectorAll("[data-tile]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const val = parseInt(e.currentTarget.dataset.tile);
+      const oldVal = CONFIG.MAP_CELL_SIZE;
+      document.getElementById("tile-size-input").value = val;
+      CONFIG.MAP_CELL_SIZE = val;
+      updateAgentPositionsForNewCellSize(oldVal, val);
+      updateEditorInfo();
+    });
+  });
+
+  // 地块大小手动输入
   document
-    .getElementById("btn-editor-add-building")
-    ?.addEventListener("click", showEditBuildingModalForNew);
+    .getElementById("tile-size-input")
+    ?.addEventListener("change", (e) => {
+      const val = parseInt(e.target.value);
+      if (val >= 8 && val <= 256) {
+        const oldVal = CONFIG.MAP_CELL_SIZE;
+        CONFIG.MAP_CELL_SIZE = val;
+        updateAgentPositionsForNewCellSize(oldVal, val);
+        updateEditorInfo();
+      }
+    });
+
+  // 合并按钮
+  document
+    .getElementById("btn-merge-areas")
+    ?.addEventListener("click", mergeSelectedAreas);
 
   // 保存/加载/清空
   document
@@ -2037,37 +2414,6 @@ function setupEditorListeners() {
     .getElementById("map-file-input")
     ?.addEventListener("change", loadMapData);
   document.getElementById("btn-clear-map")?.addEventListener("click", clearMap);
-
-  // 建筑编辑弹窗
-  document
-    .getElementById("btn-close-edit-building")
-    ?.addEventListener("click", () => hideModal("edit-building-modal"));
-  document
-    .getElementById("btn-cancel-edit-building")
-    ?.addEventListener("click", () => hideModal("edit-building-modal"));
-  document
-    .getElementById("edit-building-form")
-    ?.addEventListener("submit", handleSaveBuilding);
-  document
-    .getElementById("btn-delete-building")
-    ?.addEventListener("click", handleDeleteBuilding);
-
-  // 图片上传
-  const uploadArea = document.getElementById("edit-image-upload-area");
-  uploadArea?.addEventListener("click", () =>
-    document.getElementById("edit-building-image")?.click(),
-  );
-  uploadArea?.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    uploadArea.classList.add("dragover");
-  });
-  uploadArea?.addEventListener("dragleave", () =>
-    uploadArea.classList.remove("dragover"),
-  );
-  uploadArea?.addEventListener("drop", handleBuildingImageDrop);
-  document
-    .getElementById("edit-building-image")
-    ?.addEventListener("change", handleBuildingImageSelect);
 }
 
 function toggleEditMode() {
@@ -2078,470 +2424,28 @@ function toggleEditMode() {
   const simSidebar = document.getElementById("simulation-sidebar");
   const editorSidebar = document.getElementById("editor-sidebar");
 
-  console.log("切换模式:", state.isEditMode ? "编辑" : "模拟");
-
   if (state.isEditMode) {
-    // 切换到编辑模式
-    if (modeToggle) modeToggle.textContent = "🏗️ 编辑模式";
+    if (modeToggle) modeToggle.textContent = "编辑模式";
     if (modeToggle) modeToggle.classList.add("active");
     if (editorToolbar) editorToolbar.classList.remove("hidden");
     if (simSidebar) simSidebar.classList.add("hidden");
     if (editorSidebar) editorSidebar.classList.remove("hidden");
 
-    // 暂停模拟
     if (state.world) state.world.stop();
 
-    // 更新编辑器显示
     updateEditorInfo();
-    renderBuildingListInEditor();
-
-    showHint("已进入编辑模式，点击工具栏选择工具");
+    renderAreaListInEditor();
+    renderAreaProperties(state.editorSelectedArea);
   } else {
-    // 切换到模拟模式
-    if (modeToggle) modeToggle.textContent = "🎮 模拟模式";
+    if (modeToggle) modeToggle.textContent = "模拟模式";
     if (modeToggle) modeToggle.classList.remove("active");
     if (editorToolbar) editorToolbar.classList.add("hidden");
     if (simSidebar) simSidebar.classList.remove("hidden");
     if (editorSidebar) editorSidebar.classList.add("hidden");
 
-    // 应用更改到 world
-    applyChangesToWorld();
-
-    showHint("已返回模拟模式，更改已应用");
+    // 同步区域到world
+    state.world.setAreas(state.areas);
   }
-}
-
-function applyChangesToWorld() {
-  // 将编辑的建筑同步回 world
-  if (!state.world || !state.editorBuildings) {
-    console.warn("World或建筑数据不存在，无法应用更改");
-    return;
-  }
-
-  console.log("应用地图更改到世界...");
-
-  // 清空现有 objects
-  state.world.objects.clear();
-
-  // 重新添加编辑后的建筑
-  for (const b of state.editorBuildings) {
-    const buildingObj = {
-      id: b.id,
-      name: b.name,
-      type: b.type || "building",
-      position: { x: b.x, y: b.y, area: b.name },
-      interactable: true,
-      description: b.description || "",
-      width: b.width || 3,
-      height: b.height || 3,
-      obstacle: b.obstacle !== false, // 默认为true
-    };
-    state.world.objects.set(b.id, buildingObj);
-    console.log(`  添加建筑: ${b.name} (${b.x}, ${b.y})`);
-  }
-
-  console.log(`已应用 ${state.editorBuildings.length} 个建筑到世界`);
-  showHint(`已应用 ${state.editorBuildings.length} 个建筑`);
-}
-
-function handleCanvasClickForEditor(e) {
-  if (!state.isEditMode) return;
-
-  const rect = state.canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const cellSize = CONFIG.MAP_CELL_SIZE;
-
-  const gridX = Math.floor(x / cellSize);
-  const gridY = Math.floor(y / cellSize);
-
-  if (
-    gridX < 0 ||
-    gridX >= CONFIG.WORLD_WIDTH ||
-    gridY < 0 ||
-    gridY >= CONFIG.WORLD_HEIGHT
-  ) {
-    return;
-  }
-
-  switch (state.editorTool) {
-    case "select":
-      selectBuildingAt(gridX, gridY);
-      break;
-    case "ground":
-    case "path":
-      paintTerrain(gridX, gridY, state.editorTerrain);
-      break;
-    case "eraser":
-      eraseAt(gridX, gridY);
-      break;
-  }
-
-  updateEditorInfo();
-}
-
-function selectBuildingAt(x, y) {
-  const buildings = state.editorBuildings || [];
-  const building = buildings.find(
-    (b) => x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height,
-  );
-
-  state.editorSelectedBuilding = building || null;
-  renderBuildingListInEditor();
-  renderEditorBuildingProperties();
-}
-
-function paintTerrain(x, y, terrain) {
-  if (!state.mapData || !state.mapData[y]) return;
-  state.mapData[y][x] = terrain;
-}
-
-function eraseAt(x, y) {
-  // 删除建筑
-  const buildings = state.editorBuildings || [];
-  const index = buildings.findIndex(
-    (b) => x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height,
-  );
-
-  if (index !== -1) {
-    buildings.splice(index, 1);
-    state.editorSelectedBuilding = null;
-    renderBuildingListInEditor();
-    renderEditorBuildingProperties();
-  }
-}
-
-function showEditBuildingModalForNew() {
-  state.editorSelectedBuilding = null;
-
-  const form = document.getElementById("edit-building-form");
-  const preview = document.getElementById("edit-image-preview");
-  const placeholder = document.getElementById("edit-upload-placeholder");
-  const originalIdInput = document.getElementById("edit-building-original-id");
-
-  if (form) form.reset();
-  if (preview) preview.classList.add("hidden");
-  if (placeholder) placeholder.classList.remove("hidden");
-  if (originalIdInput) originalIdInput.value = "";
-
-  showModal("edit-building-modal");
-}
-
-function showEditBuildingModalForEdit(building) {
-  state.editorSelectedBuilding = building;
-  document.getElementById("edit-building-original-id").value = building.id;
-  document.getElementById("edit-building-id").value = building.id;
-  document.getElementById("edit-building-name").value = building.name;
-  document.getElementById("edit-building-width").value = building.width;
-  document.getElementById("edit-building-height").value = building.height;
-  document.getElementById("edit-building-obstacle").checked = building.obstacle;
-  document.getElementById("edit-building-description").value =
-    building.description || "";
-
-  if (building.image) {
-    document.getElementById("edit-image-preview").src = building.image;
-    document.getElementById("edit-image-preview").classList.remove("hidden");
-    document.getElementById("edit-upload-placeholder").classList.add("hidden");
-  } else {
-    document.getElementById("edit-image-preview").classList.add("hidden");
-    document
-      .getElementById("edit-upload-placeholder")
-      .classList.remove("hidden");
-  }
-
-  showModal("edit-building-modal");
-}
-
-function handleSaveBuilding(e) {
-  e.preventDefault();
-
-  const idInput = document.getElementById("edit-building-id");
-  const nameInput = document.getElementById("edit-building-name");
-  const widthInput = document.getElementById("edit-building-width");
-  const heightInput = document.getElementById("edit-building-height");
-  const obstacleInput = document.getElementById("edit-building-obstacle");
-  const descInput = document.getElementById("edit-building-description");
-  const originalIdInput = document.getElementById("edit-building-original-id");
-
-  if (!idInput || !nameInput) {
-    console.error("表单元素未找到");
-    return;
-  }
-
-  const id = idInput.value.trim();
-  const name = nameInput.value.trim();
-  const width = parseInt(widthInput?.value) || 3;
-  const height = parseInt(heightInput?.value) || 3;
-  const obstacle = obstacleInput?.checked ?? true;
-  const description = descInput?.value.trim() || "";
-  const originalId = originalIdInput?.value || "";
-
-  if (!id || !name) {
-    alert("请填写 ID 和名称");
-    return;
-  }
-
-  // 确保数组存在
-  if (!state.editorBuildings) state.editorBuildings = [];
-
-  // 检查ID重复
-  const exists = state.editorBuildings.some(
-    (b) => b.id === id && b.id !== originalId,
-  );
-  if (exists) {
-    alert("建筑ID已存在");
-    return;
-  }
-
-  const buildingData = {
-    id,
-    name,
-    type: "building",
-    width,
-    height,
-    obstacle,
-    description,
-    image: state.editorSelectedBuilding?.image || null,
-    x: state.editorSelectedBuilding?.x || 10,
-    y: state.editorSelectedBuilding?.y || 10,
-  };
-
-  if (originalId) {
-    // 更新现有建筑
-    const index = state.editorBuildings.findIndex((b) => b.id === originalId);
-    if (index !== -1) {
-      state.editorBuildings[index] = {
-        ...state.editorBuildings[index],
-        ...buildingData,
-      };
-    }
-  } else {
-    // 新建建筑 - 保存历史
-    saveEditHistory();
-    state.editorBuildings.push(buildingData);
-  }
-
-  hideModal("edit-building-modal");
-  renderBuildingListInEditor();
-  updateEditorInfo();
-  showHint(`建筑 "${name}" 已保存`);
-}
-
-function handleDeleteBuilding() {
-  const originalIdInput = document.getElementById("edit-building-original-id");
-  const originalId = originalIdInput?.value;
-
-  if (!originalId) {
-    hideModal("edit-building-modal");
-    return;
-  }
-
-  if (!state.editorBuildings) {
-    hideModal("edit-building-modal");
-    return;
-  }
-
-  if (confirm("确定要删除这个建筑吗？")) {
-    const index = state.editorBuildings.findIndex((b) => b.id === originalId);
-    if (index !== -1) {
-      state.editorBuildings.splice(index, 1);
-      state.editorSelectedBuilding = null;
-      hideModal("edit-building-modal");
-      renderBuildingListInEditor();
-      renderEditorBuildingProperties();
-      updateEditorInfo();
-      showHint("建筑已删除");
-    }
-  }
-}
-
-function handleBuildingImageDrop(e) {
-  e.preventDefault();
-  const uploadArea = document.getElementById("edit-image-upload-area");
-  uploadArea.classList.remove("dragover");
-
-  const file = e.dataTransfer.files[0];
-  if (file) processBuildingImage(file);
-}
-
-function handleBuildingImageSelect(e) {
-  const file = e.target.files[0];
-  if (file) processBuildingImage(file);
-}
-
-function processBuildingImage(file) {
-  if (!file.type.startsWith("image/")) {
-    alert("请选择图片文件");
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = document.getElementById("edit-image-preview");
-    img.src = e.target.result;
-    img.classList.remove("hidden");
-    document.getElementById("edit-upload-placeholder").classList.add("hidden");
-
-    if (state.editorSelectedBuilding) {
-      state.editorSelectedBuilding.image = e.target.result;
-    } else {
-      // 临时存储给新建的建筑
-      if (!state.tempNewBuilding) state.tempNewBuilding = {};
-      state.tempNewBuilding.image = e.target.result;
-    }
-  };
-  reader.readAsDataURL(file);
-}
-
-function saveMapData() {
-  const data = {
-    version: "1.0",
-    timestamp: new Date().toISOString(),
-    mapData: state.mapData,
-    buildings: state.editorBuildings,
-  };
-
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `ai-town-map-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  showHint("地图已导出");
-}
-
-function loadMapData(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (data.mapData) {
-        state.mapData = data.mapData;
-      }
-      if (data.buildings) {
-        state.editorBuildings = data.buildings;
-      }
-      renderBuildingListInEditor();
-      updateEditorInfo();
-      showHint("地图已加载");
-    } catch (err) {
-      alert("加载失败：" + err.message);
-    }
-  };
-  reader.readAsText(file);
-  e.target.value = "";
-}
-
-function clearMap() {
-  if (!confirm("确定要清空所有建筑和地形吗？此操作不可恢复。")) return;
-
-  saveEditHistory();
-  initMapData();
-  state.editorBuildings = [];
-  state.editorSelectedBuilding = null;
-  renderBuildingListInEditor();
-  renderEditorBuildingProperties();
-  updateEditorInfo();
-  showHint("地图已清空");
-}
-
-function updateEditorInfo() {
-  const dimensionsEl = document.getElementById("map-dimensions");
-  const countEl = document.getElementById("building-count");
-
-  if (dimensionsEl)
-    dimensionsEl.textContent = `${CONFIG.WORLD_WIDTH}×${CONFIG.WORLD_HEIGHT}`;
-  if (countEl) countEl.textContent = state.editorBuildings?.length || 0;
-}
-
-function renderBuildingListInEditor() {
-  const container = document.getElementById("editor-building-content");
-  if (!container) return;
-
-  const buildings = state.editorBuildings || [];
-
-  if (buildings.length === 0) {
-    container.innerHTML =
-      '<div class="empty-state">暂无建筑，点击"新建建筑"添加</div>';
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="editor-building-list">
-      ${buildings
-        .map(
-          (b) => `
-        <div class="editor-building-item ${state.editorSelectedBuilding?.id === b.id ? "selected" : ""}"
-             data-id="${b.id}">
-          <div class="building-status-icon ${b.obstacle ? "obstacle" : "passable"}"></div>
-          <div style="flex: 1;">
-            <div style="font-weight: 500;">${b.name}</div>
-            <div style="font-size: 11px; color: rgba(255,255,255,0.5);">${b.id} · ${b.width}×${b.height}</div>
-          </div>
-        </div>
-      `,
-        )
-        .join("")}
-    </div>
-  `;
-
-  // 添加点击事件
-  container.querySelectorAll(".editor-building-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      const id = item.dataset.id;
-      const building = state.editorBuildings.find((b) => b.id === id);
-      if (building) {
-        showEditBuildingModalForEdit(building);
-      }
-    });
-  });
-}
-
-function renderEditorBuildingProperties() {
-  const panel = document.getElementById("editor-building-content");
-  if (!panel) return;
-
-  if (!state.editorSelectedBuilding) {
-    panel.innerHTML = '<div class="empty-state">点击建筑进行编辑</div>';
-    return;
-  }
-
-  const b = state.editorSelectedBuilding;
-  panel.innerHTML = `
-    <div class="property-group">
-      <label>ID</label>
-      <div class="property-value">${b.id}</div>
-    </div>
-    <div class="property-group">
-      <label>名称</label>
-      <div class="property-value">${b.name}</div>
-    </div>
-    <div class="property-group">
-      <label>位置</label>
-      <div class="property-value">(${b.x}, ${b.y})</div>
-    </div>
-    <div class="property-group">
-      <label>尺寸</label>
-      <div class="property-value">${b.width} × ${b.height}</div>
-    </div>
-    <div class="property-group">
-      <label>障碍物</label>
-      <div class="property-value">
-        <span class="color-indicator ${b.obstacle ? "color-obstacle" : "color-passable"}"></span>
-        ${b.obstacle ? "是" : "否"}
-      </div>
-    </div>
-    <button class="btn btn-block" onclick="showEditBuildingModalForEdit(state.editorSelectedBuilding)">
-      ✏️ 编辑详情
-    </button>
-  `;
 }
 
 function showHint(message) {
@@ -2560,8 +2464,16 @@ function showHint(message) {
   }, 3000);
 }
 
-// 使函数全局可用（用于内联事件处理）
-window.showEditBuildingModalForEdit = showEditBuildingModalForEdit;
-
 // ========== 启动 ==========
+// 暴露编辑器函数供测试使用
+window._editorTest = {
+  get state() {
+    return state;
+  },
+  eraseAreaAt,
+  mergeSelectedAreas,
+  addArea,
+  renderAreaListInEditor,
+};
+
 window.addEventListener("DOMContentLoaded", init);
