@@ -95,6 +95,23 @@ class WorldSimulator extends EventTarget {
   }
 
   /**
+   * 更新格子大小并重建网格
+   */
+  updateGridSize(newTileSize) {
+    this.tileSize = newTileSize;
+    this.gridCols = Math.floor(this.imageWidth / newTileSize);
+    this.gridRows = Math.floor(this.imageHeight / newTileSize);
+    this.rebuildPassabilityFromAreas();
+    for (const agent of this.agents.values()) {
+      const pos = agent.getPosition();
+      agent.setPosition({
+        x: Math.max(0, Math.min(pos.x, this.gridCols - 1)),
+        y: Math.max(0, Math.min(pos.y, this.gridRows - 1)),
+      });
+    }
+  }
+
+  /**
    * 获取所有区域
    */
   getAreas() {
@@ -517,6 +534,37 @@ class WorldSimulator extends EventTarget {
     );
 
     return event;
+  }
+
+  /**
+   * 将区域转换为Agent可用的对象格式
+   */
+  areasToObjects() {
+    const objects = new Map();
+    for (const area of this.areas) {
+      if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
+      if (!area.services || area.services.length === 0) continue;
+
+      // 计算区域中心位置
+      let sumX = 0,
+        sumY = 0;
+      for (const c of area.cells) {
+        sumX += c.x;
+        sumY += c.y;
+      }
+      const center = {
+        x: Math.round(sumX / area.cells.length),
+        y: Math.round(sumY / area.cells.length),
+      };
+
+      objects.set(area.id, {
+        name: area.name,
+        position: center,
+        services: area.services,
+        cells: area.cells,
+      });
+    }
+    return objects;
   }
 
   /**

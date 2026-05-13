@@ -92,12 +92,12 @@ export const ASSET_CONFIG = {
     },
   },
 
-  // 地面纹理配置
-  tiles: {
-    grass: "tiles/grass.png",
-    path: "tiles/path.png",
-    water: "tiles/water.png",
-    wall: "tiles/wall.png",
+  // 地图配置
+  map: {
+    image: "map.png",
+    defaultTileSize: 48,
+    imageWidth: 1536,
+    imageHeight: 1024,
   },
 
   // 状态颜色配置

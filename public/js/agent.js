@@ -134,25 +134,30 @@ class Agent {
       10,
     );
 
-    // 获取世界中的地点和服务信息
+    // 获取世界中的地点和服务信息（从区域数据读取）
     const locations = [];
     const workLocations = [];
     const foodLocations = [];
-    for (const obj of worldState.objects.values()) {
-      locations.push(`${obj.name}(${obj.position.x},${obj.position.y})`);
+    const areas = worldState.getAreas ? worldState.getAreas() : [];
+    for (const area of areas) {
+      if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
+      // 计算区域中心位置
+      let sumX = 0,
+        sumY = 0;
+      for (const c of area.cells) {
+        sumX += c.x;
+        sumY += c.y;
+      }
+      const cx = Math.round(sumX / area.cells.length);
+      const cy = Math.round(sumY / area.cells.length);
+      locations.push(`${area.name}(${cx},${cy})`);
 
       // 分类地点
-      if (obj.services) {
-        const hasWork = obj.services.some((s) => s.name === "工作");
-        const hasFood = obj.services.some((s) => s.fullness > 0);
-        if (hasWork)
-          workLocations.push(
-            `${obj.name}(${obj.position.x},${obj.position.y})`,
-          );
-        if (hasFood)
-          foodLocations.push(
-            `${obj.name}(${obj.position.x},${obj.position.y})`,
-          );
+      if (area.services) {
+        const hasWork = area.services.some((s) => s.income > 0);
+        const hasFood = area.services.some((s) => s.fullness > 0);
+        if (hasWork) workLocations.push(`${area.name}(${cx},${cy})`);
+        if (hasFood) foodLocations.push(`${area.name}(${cx},${cy})`);
       }
     }
 
@@ -214,18 +219,32 @@ class Agent {
     // 附近建筑提示
     let nearbyBuildings = "";
     let canBuyFood = false;
-    for (const obj of worldState.objects.values()) {
+    for (const area of areas) {
+      if (
+        area.isBlocked ||
+        !area.cells ||
+        area.cells.length === 0 ||
+        !area.services
+      )
+        continue;
+      let sumX = 0,
+        sumY = 0;
+      for (const c of area.cells) {
+        sumX += c.x;
+        sumY += c.y;
+      }
+      const cx = Math.round(sumX / area.cells.length);
+      const cy = Math.round(sumY / area.cells.length);
       const distance =
-        Math.abs(obj.position.x - this.position.x) +
-        Math.abs(obj.position.y - this.position.y);
-      if (distance <= 3 && obj.services) {
-        const foodServices = obj.services.filter((s) => s.fullness > 0);
-        const services = obj.services
+        Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
+      if (distance <= 5 && area.services.length > 0) {
+        const foodServices = area.services.filter((s) => s.fullness > 0);
+        const services = area.services
           .map(
             (s) => `${s.name}(+${s.fullness || s.health || ""},${s.cost}积分)`,
           )
           .join(", ");
-        nearbyBuildings += `- ${obj.name}: ${services}\n`;
+        nearbyBuildings += `- ${area.name}: ${services}\n`;
         if (foodServices.length > 0) {
           canBuyFood = true;
         }
@@ -349,6 +368,19 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
           timestamp: new Date(),
         };
       } else if (actionType === "WORK") {
+        // 如果LLM指定了目标位置且不在当前位置，先移动过去
+        if (decision.targetX !== undefined && decision.targetY !== undefined) {
+          const dx = Math.abs(decision.targetX - this.position.x);
+          const dy = Math.abs(decision.targetY - this.position.y);
+          if (dx + dy > 1) {
+            return {
+              type: this.ActionType.MOVE,
+              description: `前往工作地点(${decision.targetX}, ${decision.targetY})`,
+              targetPosition: { x: decision.targetX, y: decision.targetY },
+              timestamp: new Date(),
+            };
+          }
+        }
         return {
           type: this.ActionType.WORK,
           description: decision.description || "工作",
@@ -357,6 +389,19 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
         };
       } else if (actionType === "BUY") {
         console.log(`[${this.name}] LLM决策: BUY购买食物`);
+        // 如果LLM指定了目标位置且不在当前位置，先移动过去
+        if (decision.targetX !== undefined && decision.targetY !== undefined) {
+          const dx = Math.abs(decision.targetX - this.position.x);
+          const dy = Math.abs(decision.targetY - this.position.y);
+          if (dx + dy > 1) {
+            return {
+              type: this.ActionType.MOVE,
+              description: `前往购买地点(${decision.targetX}, ${decision.targetY})`,
+              targetPosition: { x: decision.targetX, y: decision.targetY },
+              timestamp: new Date(),
+            };
+          }
+        }
         return {
           type: this.ActionType.BUY,
           description: decision.description || "购买",
@@ -424,12 +469,25 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
 
       case this.ActionType.SLEEP:
         console.log(`[${this.name}] 执行SLEEP行动，准备回家睡觉...`);
-        if (world && world.objects) {
-          // 找到自己的家
+        if (world) {
+          // 找到宿舍区域
           let myHome = null;
-          for (const obj of world.objects.values()) {
-            if (obj.owner === this.id) {
-              myHome = obj;
+          const areas = world.getAreas ? world.getAreas() : [];
+          for (const area of areas) {
+            if (area.name === "宿舍" && area.cells && area.cells.length > 0) {
+              let sumX = 0,
+                sumY = 0;
+              for (const c of area.cells) {
+                sumX += c.x;
+                sumY += c.y;
+              }
+              myHome = {
+                position: {
+                  x: Math.round(sumX / area.cells.length),
+                  y: Math.round(sumY / area.cells.length),
+                },
+                services: area.services || [],
+              };
               break;
             }
           }
@@ -461,7 +519,7 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
               this.startMoving({ ...myHome.position });
             }
           } else {
-            console.warn(`[${this.name}] 未找到家，原地睡觉`);
+            console.warn(`[${this.name}] 未找到宿舍，原地睡觉`);
             this.status = "sleeping";
           }
         } else {
@@ -481,37 +539,51 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
 
       case this.ActionType.BUY:
         console.log(`[${this.name}] 执行BUY行动，寻找附近食物...`);
-        // 寻找附近有可购买服务的建筑
-        if (world && world.objects) {
-          let bestBuilding = null;
+        // 寻找附近有可购买服务的区域
+        if (world) {
+          let bestArea = null;
           let bestService = null;
           let minDistance = Infinity;
+          const areas = world.getAreas ? world.getAreas() : [];
 
-          for (const obj of world.objects.values()) {
-            if (!obj.services) continue;
+          for (const area of areas) {
+            if (area.isBlocked || !area.services || area.services.length === 0)
+              continue;
+            let sumX = 0,
+              sumY = 0;
+            for (const c of area.cells) {
+              sumX += c.x;
+              sumY += c.y;
+            }
+            const cx = Math.round(sumX / area.cells.length);
+            const cy = Math.round(sumY / area.cells.length);
 
             const distance =
-              Math.abs(obj.position.x - this.position.x) +
-              Math.abs(obj.position.y - this.position.y);
+              Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
             if (distance <= 5 && distance < minDistance) {
               // 找食物服务
-              const foodServices = obj.services.filter(
+              const foodServices = area.services.filter(
                 (s) => s.fullness > 0 && this.greenPoints >= s.cost,
               );
               if (foodServices.length > 0) {
+                const obj = {
+                  name: area.name,
+                  position: { x: cx, y: cy },
+                  services: area.services,
+                };
                 // 如果指定了服务名，找匹配的
                 if (action.serviceName) {
                   const matchedService = foodServices.find(
                     (s) => s.name === action.serviceName,
                   );
                   if (matchedService) {
-                    bestBuilding = obj;
+                    bestArea = obj;
                     bestService = matchedService;
                     minDistance = distance;
                   }
                 } else {
                   // 否则找性价比最高的
-                  bestBuilding = obj;
+                  bestArea = obj;
                   bestService = foodServices.sort(
                     (a, b) => b.fullness / b.cost - a.fullness / a.cost,
                   )[0];
@@ -521,11 +593,11 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
             }
           }
 
-          if (bestBuilding && bestService) {
+          if (bestArea && bestService) {
             console.log(
-              `[${this.name}] 找到食物: ${bestService.name} at ${bestBuilding.name}，价格${bestService.cost}，恢复${bestService.fullness}饱腹`,
+              `[${this.name}] 找到食物: ${bestService.name} at ${bestArea.name}，价格${bestService.cost}，恢复${bestService.fullness}饱腹`,
             );
-            await this.interactWithObject(bestBuilding, bestService);
+            await this.interactWithObject(bestArea, bestService);
             // 购买完成后重置状态
             this.status = "idle";
             this.currentAction = null;

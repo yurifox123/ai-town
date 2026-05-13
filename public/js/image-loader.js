@@ -88,10 +88,9 @@ class ImageLoader {
       if (building?.sprite) imagePaths.push(building.sprite);
     }
 
-    // 地面纹理
-    for (const key of Object.keys(ASSET_CONFIG.tiles)) {
-      const tile = ASSET_CONFIG.tiles[key];
-      if (tile) imagePaths.push(tile);
+    // 地图背景图片
+    if (ASSET_CONFIG.map?.image) {
+      imagePaths.push(ASSET_CONFIG.map.image);
     }
 
     this.total = imagePaths.length;

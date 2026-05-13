@@ -33,7 +33,7 @@ const agentAnimState = new Map();
 
 // ========== 配置 ==========
 const CONFIG = {
-  MAP_CELL_SIZE: 48,
+  MAP_CELL_SIZE: 42,
   MAP_IMAGE_WIDTH: 1536,
   MAP_IMAGE_HEIGHT: 1024,
   MAP_TOP_OFFSET: 28, // 地图顶部裁剪像素
@@ -217,6 +217,7 @@ async function init() {
           return a;
         });
         state.world.setAreas(state.areas);
+        state.world.updateGridSize(CONFIG.MAP_CELL_SIZE);
         saveAreaHistory();
       }
     })

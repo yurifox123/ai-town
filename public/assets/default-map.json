@@ -187,7 +187,15 @@
           "y": 1
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "睡觉",
+          "cost": 0,
+          "health": 10,
+          "description": "在宿舍休息恢复精力"
+        }
+      ]
     },
     {
       "id": "area_1778671313842_237",
@@ -274,7 +282,15 @@
           "y": 17
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "研究",
+          "cost": 0,
+          "income": 20,
+          "description": "在实验室做研究赚积分"
+        }
+      ]
     },
     {
       "id": "area_1778671373118_239",
@@ -349,7 +365,21 @@
           "y": 2
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "买食物",
+          "cost": 5,
+          "fullness": 15,
+          "description": "购买基本食物"
+        },
+        {
+          "name": "买大餐",
+          "cost": 15,
+          "fullness": 40,
+          "description": "购买丰盛美食"
+        }
+      ]
     },
     {
       "id": "area_1778671395980_240",
@@ -404,7 +434,10 @@
           "y": 3
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        { "name": "许愿", "cost": 0, "description": "在许愿池许愿放松心情" }
+      ]
     },
     {
       "id": "area_1778671497198_248",
@@ -662,7 +695,15 @@
           "y": 10
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "种地",
+          "cost": 0,
+          "income": 12,
+          "description": "在田地里干农活赚积分"
+        }
+      ]
     },
     {
       "id": "area_1778671604825_252",
@@ -737,7 +778,15 @@
           "y": 14
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "学习",
+          "cost": 0,
+          "income": 10,
+          "description": "在图书馆学习赚积分"
+        }
+      ]
     },
     {
       "id": "area_1778671653055_253",
@@ -776,7 +825,15 @@
           "y": 10
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "搬运",
+          "cost": 0,
+          "income": 15,
+          "description": "在仓库搬运货物赚积分"
+        }
+      ]
     },
     {
       "id": "area_1778672039751_299",
@@ -895,7 +952,15 @@
           "y": 16
         }
       ],
-      "isBlocked": false
+      "isBlocked": false,
+      "services": [
+        {
+          "name": "上班",
+          "cost": 0,
+          "income": 18,
+          "description": "在工厂上班赚积分"
+        }
+      ]
     },
     {
       "id": "area_1778672092234_308",
