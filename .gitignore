@@ -36,3 +36,8 @@ coverage/
 # Temp files
 tmp/
 temp/
+
+# Ad-hoc test scripts and screenshots
+test-*.js
+*.png
+test-results/

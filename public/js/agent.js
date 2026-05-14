@@ -139,6 +139,25 @@ class Agent {
     const workLocations = [];
     const foodLocations = [];
     const areas = worldState.getAreas ? worldState.getAreas() : [];
+
+    // 辅助：从区域中随机选一个可通行的格子
+    const pickRandomAreaCell = (targetX, targetY) => {
+      for (const area of areas) {
+        if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
+        const inArea = area.cells.some(
+          (c) => c.x === targetX && c.y === targetY,
+        );
+        if (inArea) {
+          const passable = area.cells.filter((c) =>
+            this.world ? this.world.isPassable(c.x, c.y) : true,
+          );
+          if (passable.length > 0) {
+            return passable[Math.floor(Math.random() * passable.length)];
+          }
+        }
+      }
+      return null;
+    };
     for (const area of areas) {
       if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
       // 计算区域中心位置
@@ -347,12 +366,14 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
         decision.targetX !== undefined &&
         decision.targetY !== undefined
       ) {
+        // 随机选区域内的一个格子，避免所有 agent 挤在同一个目标点
+        const areaCell = pickRandomAreaCell(decision.targetX, decision.targetY);
+        const target = areaCell || { x: decision.targetX, y: decision.targetY };
         return {
           type: this.ActionType.MOVE,
           description:
-            decision.description ||
-            `移动到(${decision.targetX}, ${decision.targetY})`,
-          targetPosition: { x: decision.targetX, y: decision.targetY },
+            decision.description || `移动到(${target.x}, ${target.y})`,
+          targetPosition: target,
           timestamp: new Date(),
         };
       } else if (actionType === "TALK") {
@@ -373,10 +394,18 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
           const dx = Math.abs(decision.targetX - this.position.x);
           const dy = Math.abs(decision.targetY - this.position.y);
           if (dx + dy > 1) {
+            const areaCell = pickRandomAreaCell(
+              decision.targetX,
+              decision.targetY,
+            );
+            const target = areaCell || {
+              x: decision.targetX,
+              y: decision.targetY,
+            };
             return {
               type: this.ActionType.MOVE,
-              description: `前往工作地点(${decision.targetX}, ${decision.targetY})`,
-              targetPosition: { x: decision.targetX, y: decision.targetY },
+              description: `前往工作地点(${target.x}, ${target.y})`,
+              targetPosition: target,
               timestamp: new Date(),
             };
           }
@@ -394,10 +423,18 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
           const dx = Math.abs(decision.targetX - this.position.x);
           const dy = Math.abs(decision.targetY - this.position.y);
           if (dx + dy > 1) {
+            const areaCell = pickRandomAreaCell(
+              decision.targetX,
+              decision.targetY,
+            );
+            const target = areaCell || {
+              x: decision.targetX,
+              y: decision.targetY,
+            };
             return {
               type: this.ActionType.MOVE,
-              description: `前往购买地点(${decision.targetX}, ${decision.targetY})`,
-              targetPosition: { x: decision.targetX, y: decision.targetY },
+              description: `前往购买地点(${target.x}, ${target.y})`,
+              targetPosition: target,
               timestamp: new Date(),
             };
           }
@@ -658,11 +695,18 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
       clearInterval(this.moveInterval);
     }
 
-    // 使用A*计算路径
+    // 使用A*计算路径（排除自身位置和其他 agent 占据的格子）
     const startPos = { x: this.position.x, y: this.position.y };
-    const path = PathFinder.findPath(startPos, targetPosition, (x, y) =>
-      this.world ? this.world.isPassable(x, y) : true,
-    );
+    const agentId = this.id;
+    const world = this.world;
+    const path = PathFinder.findPath(startPos, targetPosition, (x, y) => {
+      if (!world) return true;
+      // 目标位置只检查地形，不检查 agent 占用（允许走到目标格）
+      if (x === targetPosition.x && y === targetPosition.y) {
+        return world.isPassable(x, y);
+      }
+      return world.isPassable(x, y) && !world.isAgentAt(x, y, agentId);
+    });
 
     if (!path || path.length === 0) {
       console.log(
@@ -762,15 +806,75 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
     else if (dy > 0) this.facingDirection = "down";
     else if (dy < 0) this.facingDirection = "up";
 
-    // 再次检查目标位置是否可通行（动态障碍物）
-    if (this.world && !this.world.isPassable(nextStep.x, nextStep.y)) {
+    // 检查动态障碍（地形或 agent 占用）
+    const blocked =
+      this.world &&
+      (!this.world.isPassable(nextStep.x, nextStep.y) ||
+        this.world.isAgentAt(nextStep.x, nextStep.y, this.id));
+
+    if (blocked) {
+      // 检测交换死锁：对方想去我的位置
+      if (this.world) {
+        const blockerId = this.world.occupancyMap.get(
+          `${nextStep.x},${nextStep.y}`,
+        );
+        if (blockerId) {
+          const blocker = this.world.agents.get(blockerId);
+          if (
+            blocker &&
+            blocker.moveTarget &&
+            blocker.moveTarget.x === this.position.x &&
+            blocker.moveTarget.y === this.position.y
+          ) {
+            // 交换死锁！用 ID 大小打破对称
+            if (this.id > blockerId) {
+              console.log(
+                `[${this.name}] 检测到交换死锁，让路给 ${blocker.name}`,
+              );
+              return true; // 让路，等待对方先走
+            }
+            // 我先走：同时交换两个 agent 的位置
+            const oldPosA = { ...this.position };
+            const oldPosB = { ...blocker.position };
+            this.position.x = nextStep.x;
+            this.position.y = nextStep.y;
+            blocker.position.x = oldPosA.x;
+            blocker.position.y = oldPosA.y;
+            // 更新占用表
+            this.world.occupancyMap.delete(`${oldPosA.x},${oldPosA.y}`);
+            this.world.occupancyMap.delete(`${oldPosB.x},${oldPosB.y}`);
+            this.world.occupancyMap.set(
+              `${this.position.x},${this.position.y}`,
+              this.id,
+            );
+            this.world.occupancyMap.set(
+              `${blocker.position.x},${blocker.position.y}`,
+              blocker.id,
+            );
+            console.log(
+              `[${this.name}] 交换死锁打破：与 ${blocker.name} 交换位置`,
+            );
+            this.currentPathIndex++;
+            this.movesSinceLastDecision++;
+            return this.currentPathIndex < this.currentPath.length;
+          }
+        }
+      }
+
       console.log(`[${this.name}] 路径被阻挡，重新计算路径...`);
 
-      // 从当前位置重新计算路径
+      const agentId = this.id;
+      const world = this.world;
       const remainingPath = PathFinder.findPath(
         { x: this.position.x, y: this.position.y },
         this.moveTarget,
-        (x, y) => (this.world ? this.world.isPassable(x, y) : true),
+        (x, y) => {
+          if (!world) return true;
+          if (x === this.moveTarget.x && y === this.moveTarget.y) {
+            return world.isPassable(x, y);
+          }
+          return world.isPassable(x, y) && !world.isAgentAt(x, y, agentId);
+        },
       );
 
       if (remainingPath && remainingPath.length > 0) {
@@ -781,9 +885,9 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
         );
         return true; // 继续移动
       } else {
-        console.log(`[${this.name}] 无法找到新路径，停止移动`);
-        this.stopMoving();
-        return false;
+        // 无路可走，等待一拍后重试
+        console.log(`[${this.name}] 无法找到新路径，等待中...`);
+        return true;
       }
     }
 
@@ -791,6 +895,10 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
     const oldPos = { ...this.position };
     this.position.x = nextStep.x;
     this.position.y = nextStep.y;
+    // 更新占用表
+    if (this.world) {
+      this.world.setAgentOccupancy(this.id, oldPos, this.position);
+    }
     this.currentPathIndex++;
     this.movesSinceLastDecision++;
 

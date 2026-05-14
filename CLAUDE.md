@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI生态小镇 (AI Eco Town) is a multi-agent simulation system based on Stanford's "Generative Agents" research paper. It simulates autonomous AI agents with memory, reflection, and planning capabilities living in a virtual 2D world.
 
-**Architecture Note:** The project was refactored to a web-first architecture. The simulation now runs entirely in the browser with a lightweight Node.js server providing LLM API proxying and static file serving.
+**Architecture Note:** The project was refactored to a web-first architecture. The simulation now runs entirely in the browser with a lightweight Node.js server providing LLM API proxying and static file serving. See `ARCHITECTURE.md` for a deeper dive.
 
 ## Common Commands
 
@@ -20,11 +20,8 @@ npm run dev
 # Build TypeScript
 npm run build
 
-# Run tests
+# Run tests (vitest is installed but no test files exist yet — see Testing below)
 npm test
-
-# Run a single test file
-npx vitest run src/path/to/test.ts
 
 # Lint
 npm run lint
@@ -37,6 +34,16 @@ npm run db:setup
 ```
 
 Note: vitest uses default configuration (no `vitest.config.*` file exists).
+
+## Testing
+
+There are no formal unit/integration tests. All testing is done via **ad-hoc Playwright scripts** at the project root:
+
+- `test-*.js` files (~15 scripts) launch the browser app, interact with it, and capture `*.png` screenshots for visual verification
+- Examples: `test-freehand.js`, `test-agent-move.js`, `test-pan.js`, `test-default-map.js`
+- `src/test.ts` is a legacy mock-mode test (excluded from TS compilation, not part of the active codebase)
+
+When modifying frontend code, write a Playwright script or reuse an existing one to verify the change visually.
 
 ## Architecture
 
@@ -208,28 +215,25 @@ public/                     # Static frontend files (primary simulation)
 ├── index.html              # Main HTML
 ├── styles.css              # Dark theme UI
 ├── js/
-│   ├── app.js              # Main simulation logic, UI, event handling
+│   ├── app.js              # Main simulation logic, UI, event handling (76KB — largest file)
 │   ├── agent.js            # Agent class (perception, decisions, actions)
 │   ├── simulator.js        # WorldSimulator class (world state, tick loop)
 │   ├── memory.js           # MemorySystem class (storage, retrieval, reflection)
 │   ├── llm-client.js       # Frontend LLM client
-│   ├── renderer.js         # Canvas rendering with sprite support
+│   ├── pathfinder.js       # A* pathfinding with terrain collision
 │   ├── image-loader.js     # Asset loading manager
 │   ├── asset-config.js     # Sprite paths and display sizes
-│   └── building-editor.js  # Map editor with terrain/building tools
+│   ├── building-editor.js  # Map editor with terrain/building tools
+│   └── renderer.js         # LEGACY/UNUSED — app.js has its own renderer
 └── assets/                 # Images and sprites
     ├── characters/         # Agent sprites (48x48px)
     ├── portraits/          # Agent portraits for UI
     ├── buildings/          # Building sprites
     ├── tiles/              # Ground tiles (grass, path, water, wall)
     └── ui/                 # UI elements
+
+ARCHITECTURE.md             # Detailed architecture documentation
 ```
-
-## Key Types
-
-- `MemoryType`: OBSERVATION, THOUGHT, ACTION, REFLECTION, DIALOGUE
-- `ActionType`: MOVE, INTERACT, TALK, THINK, WAIT, SLEEP, WORK, BUY
-- `PlanType`: LONG_TERM, DAILY, HOURLY, IMMEDIATE
 
 ## Environment Variables
 
@@ -265,35 +269,7 @@ The web interface includes a full map editor accessible via "编辑地图" butto
 
 ## Web Frontend
 
-### Running the Frontend
-
-```bash
-# Start the server
-npm start
-```
-
-Then open your browser to `http://localhost:3061` (or the port shown in console).
-
-### Frontend Features
-
-- **Real-time Visualization**: 2D grid world with Agent positions and buildings
-- **Live Updates**: Agent movement and status updates via browser-based simulation
-- **Agent Details**: Click on any Agent to view their memories, reflections, and background
-- **Event Log**: Real-time display of world events and Agent actions
-- **Simulation Control**: Start/stop/pause simulation from the web interface
-- **Interactive Map**: Hover over elements to see tooltips, click Agents for details
-- **Map Editor**: Build mode for editing terrain and placing buildings
-
-### Agent Templates
-
-Default agents (configured in `public/js/app.js`):
-
-| Name | Age | Traits             | Health Max | Fullness | Green Points |
-| ---- | --- | ------------------ | ---------- | -------- | ------------ |
-| 小明 | 25  | 开朗活泼，喜欢社交 | 100        | 80       | 10           |
-| 小红 | 24  | 温柔细腻，喜欢阅读 | 85         | 75       | 10           |
-| 小米 | 22  | 活泼可爱，喜欢美食 | 90         | 70       | 10           |
-| 小东 | 26  | 沉稳内敛，喜欢运动 | 100        | 90       | 10           |
+Run `npm start` and open `http://localhost:3061`. The UI supports real-time simulation visualization, agent details (click to view memories), event log, and a map editor.
 
 ### API Endpoints
 
@@ -302,16 +278,6 @@ The server exposes these endpoints:
 - `POST /api/llm/chat` - Proxy LLM requests (messages, options)
 - `POST /api/llm/embedding` - Get text embeddings
 - `POST /api/stop` - Shut down the server
-
-## Asset Configuration
-
-Character and building sprites are configured in `public/js/asset-config.js`:
-
-- Characters have `sprite` (world), `portrait` (UI), and `displaySize`
-- Buildings have `sprite` and `displaySize`
-- Supports dynamic loading with fallback to default
-
-**Note:** Agent templates in `public/js/app.js` are different from the legacy templates in `src/data/agent-templates.ts`.
 
 ## TypeScript Configuration
 

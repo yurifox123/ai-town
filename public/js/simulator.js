@@ -41,6 +41,9 @@ class WorldSimulator extends EventTarget {
 
     this.tickCount = 0;
 
+    // Agent 占用表：追踪哪个格子被哪个 agent 占据
+    this.occupancyMap = new Map(); // "x,y" -> agentId
+
     // 区域系统
     this.areas = [];
     this.passabilityGrid = null;
@@ -129,6 +132,58 @@ class WorldSimulator extends EventTarget {
   }
 
   /**
+   * 检查指定位置是否有其他 agent 占据
+   */
+  isAgentAt(x, y, excludeId = null) {
+    const key = `${x},${y}`;
+    const occupant = this.occupancyMap.get(key);
+    return occupant !== undefined && occupant !== excludeId;
+  }
+
+  /**
+   * 更新 agent 占用位置
+   */
+  setAgentOccupancy(agentId, oldPos, newPos) {
+    if (oldPos) {
+      this.occupancyMap.delete(`${oldPos.x},${oldPos.y}`);
+    }
+    if (newPos) {
+      this.occupancyMap.set(`${newPos.x},${newPos.y}`, agentId);
+    }
+  }
+
+  /**
+   * 移除 agent 占用
+   */
+  removeAgentOccupancy(agentId) {
+    for (const [key, id] of this.occupancyMap) {
+      if (id === agentId) {
+        this.occupancyMap.delete(key);
+        break;
+      }
+    }
+  }
+
+  /**
+   * 找到指定位置附近的空单元格
+   */
+  findNearbyEmptyCell(pos, maxRadius = 5) {
+    for (let r = 1; r <= maxRadius; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const x = pos.x + dx;
+          const y = pos.y + dy;
+          if (this.isPassable(x, y) && !this.isAgentAt(x, y)) {
+            return { x, y };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * 获取指定坐标的区域名称
    */
   getAreaNameAt(x, y) {
@@ -166,6 +221,11 @@ class WorldSimulator extends EventTarget {
         x: Math.max(0, Math.min(position.x, this.gridCols - 1)),
         y: Math.max(0, Math.min(position.y, this.gridRows - 1)),
       };
+      // 如果目标位置被占用，找附近空位
+      if (this.isAgentAt(clamped.x, clamped.y)) {
+        const nearby = this.findNearbyEmptyCell(clamped);
+        if (nearby) ((clamped.x = nearby.x), (clamped.y = nearby.y));
+      }
       agent.setPosition(clamped);
     } else {
       let validPosition = false;
@@ -177,7 +237,9 @@ class WorldSimulator extends EventTarget {
           x: Math.floor(Math.random() * this.gridCols),
           y: Math.floor(Math.random() * this.gridRows),
         };
-        validPosition = this.isPassable(newPos.x, newPos.y);
+        validPosition =
+          this.isPassable(newPos.x, newPos.y) &&
+          !this.isAgentAt(newPos.x, newPos.y);
         attempts++;
       }
 
@@ -199,6 +261,9 @@ class WorldSimulator extends EventTarget {
     }
 
     this.agents.set(agent.id, agent);
+    // 注册占用
+    const pos = agent.getPosition();
+    this.setAgentOccupancy(agent.id, null, pos);
 
     this.dispatchEvent(
       new CustomEvent("agentJoined", {
@@ -215,6 +280,7 @@ class WorldSimulator extends EventTarget {
   removeAgent(agentId) {
     const agent = this.agents.get(agentId);
     if (agent) {
+      this.removeAgentOccupancy(agentId);
       this.agents.delete(agentId);
       this.dispatchEvent(
         new CustomEvent("agentLeft", {
