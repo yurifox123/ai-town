@@ -2,22 +2,19 @@
   "name": "ai-town",
   "version": "0.1.0",
   "description": "Generative Agents - AI生态小镇复刻",
-  "main": "src/index.ts",
+  "main": "src/server/index.ts",
   "scripts": {
-    "dev": "tsx watch src/server/simple-server.ts",
-    "start": "tsx src/server/simple-server.ts",
+    "dev": "tsx watch src/server/index.ts",
+    "start": "tsx src/server/index.ts",
     "stop": "npx kill-port 3061",
-    "dev:web": "tsx watch src/server/simple-server.ts",
     "build": "tsc",
     "test": "vitest",
-    "lint": "eslint src --ext .ts",
-    "demo": "tsx src/demo.ts",
-    "db:setup": "tsx scripts/setup-db.ts",
-    "legacy:cli": "tsx src/index.ts",
-    "legacy:web": "tsx src/frontend.ts"
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.18.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.10.0",
     "chromadb": "^1.8.0",
     "dotenv": "^16.4.0",
     "openai": "^4.28.0",

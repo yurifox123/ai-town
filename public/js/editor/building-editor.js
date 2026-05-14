@@ -3,7 +3,7 @@
  * 支持导入贴图、缩放大小、设置障碍物属性
  */
 
-import imageLoader from './image-loader.js';
+import imageLoader from '../assets/image-loader.js';
 
 // ========== 配置 ==========
 const CONFIG = {

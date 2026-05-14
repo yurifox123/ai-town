@@ -2,9 +2,9 @@
  * AI 生态小镇前端主应用 - 增强版
  * 支持图片精灵渲染和加载界面
  */
-import WorldSimulator from "./simulator.js";
+import WorldSimulator from "../core/simulator.js";
 import LLMClient from "./llm-client.js";
-import imageLoader from "./image-loader.js";
+import imageLoader from "../assets/image-loader.js";
 import {
   getCharacterSprite,
   getCharacterPortrait,
@@ -14,7 +14,7 @@ import {
   getCharacterAnimation,
   getCharacterKey,
   ASSET_CONFIG,
-} from "./asset-config.js";
+} from "../assets/asset-config.js";
 
 // ========== 拖拽平移状态 ==========
 let isPanning = false;
@@ -158,7 +158,7 @@ async function init() {
   // 预加载所有图片
   console.log("📸 正在加载图片素材...");
   await imageLoader.preloadAll((progress) => {
-    updateLoadingProgress(progress);
+    updateLoadingProgress(progress * 0.3); // 图片占30%进度
   });
 
   // 初始化 LLM 客户端
@@ -180,16 +180,12 @@ async function init() {
   // 初始化画布
   initCanvas();
 
-  // 隐藏加载界面
-  hideLoadingScreen();
-
-  // 开始渲染循环
+  // 开始渲染循环（但先不显示，等agent完成）
   startRenderLoop();
 
-  // 添加默认 Agent（不阻塞初始化）
-  addDefaultAgents().catch((err) => {
-    console.error("添加默认 Agent 失败:", err);
-  });
+  // 添加默认 Agent 并等待完成
+  updateLoadingText("正在初始化 Agent...");
+  await addDefaultAgents();
 
   // 初始化编辑模式
   initEditor();
@@ -256,6 +252,12 @@ function updateLoadingProgress(progress) {
   }
   if (elements.loadingText) {
     elements.loadingText.textContent = `${Math.round(progress)}%`;
+  }
+}
+
+function updateLoadingText(text) {
+  if (elements.loadingText) {
+    elements.loadingText.textContent = text;
   }
 }
 
@@ -2258,16 +2260,26 @@ async function addDefaultAgents() {
     { name: "xiaodong", x: 8, y: 5 },
   ];
 
-  for (const pos of positions) {
+  const total = positions.length;
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
     const template = agentTemplates[pos.name];
     if (template) {
+      const name = template.name || pos.name;
+      updateLoadingText(`正在初始化 ${name}... (${i + 1}/${total})`);
+      updateLoadingProgress(30 + ((i / total) * 60));
       try {
         await state.world.addAgent(template, { x: pos.x, y: pos.y });
       } catch (err) {
-        console.error(`添加 Agent ${pos.name} 失败:`, err);
+        console.error(`添加 Agent ${name} 失败:`, err);
       }
     }
   }
+  updateLoadingText("全部就绪！");
+  updateLoadingProgress(100);
+
+  // 隐藏加载界面
+  hideLoadingScreen();
 }
 
 async function handleAddAgent(e) {

@@ -3,7 +3,7 @@
  * 测试各角色、各方向、各动作的动画效果
  */
 
-import { ASSET_CONFIG, getCharacterAnimation, getCharacterSprite, getCharacterKey } from './asset-config.js';
+import { ASSET_CONFIG, getCharacterAnimation, getCharacterSprite, getCharacterKey } from '../assets/asset-config.js';
 
 // ========== 状态 ==========
 let currentChar = '';
