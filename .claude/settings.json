@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(curl -s http://localhost:3061/ -o /dev/null -w \"%{http_code}\")",
+      "Read(//tmp/**)",
+      "Read(//c/tmp/**)",
+      "Bash(pkill -f \"tsx src/server/simple-server\")",
+      "Bash(curl -s https://api.qiyue999.com/v1/messages -X POST -H 'Content-Type: application/json' -H 'x-api-key: sk-tW04sGWVsTNtMdKMl9Pwh46tNHKlDfeC2nN41QRSpa7UTLCT' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"MiniMax-M2.7\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"你好，请用中文简短回复\"}]}')",
+      "Bash(curl -s https://api.qiyue999.com/v1/messages -X POST -H 'Content-Type: application/json' -H 'x-api-key: sk-tW04sGWVsTNtMdKMl9Pwh46tNHKlDfeC2nN41QRSpa7UTLCT' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"MiniMax-M2.7\",\"max_tokens\":300,\"messages\":[{\"role\":\"user\",\"content\":\"hello, what is 2+2\"}]}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['content'], indent=2, ensure_ascii=False\\)\\)\")",
+      "Bash(findstr LISTENING)"
+    ]
+  }
+}
