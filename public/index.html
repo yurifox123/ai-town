@@ -230,9 +230,13 @@
       <div class="modal-content modal-large">
         <div class="modal-header">
           <h2 id="modal-agent-name">Agent 详情</h2>
-          <button id="btn-close-modal" class="btn-close">×</button>
+          <div class="modal-header-actions">
+            <button id="btn-edit-agent" class="btn btn-small">✏️ 编辑</button>
+            <button id="btn-close-modal" class="btn-close">×</button>
+          </div>
         </div>
         <div class="modal-body">
+          <div id="agent-view-mode">
           <div class="agent-info-grid">
             <div class="info-row">
               <span class="info-label">ID:</span>
@@ -310,6 +314,70 @@
             </div>
           </div>
         </div>
+
+        <div id="agent-edit-mode" class="hidden">
+            <div class="form-group">
+              <label>姓名</label>
+              <input type="text" id="edit-agent-name">
+            </div>
+            <div class="form-group">
+              <label>年龄</label>
+              <input type="number" id="edit-agent-age" min="1" max="120">
+            </div>
+            <div class="form-group">
+              <label>职业</label>
+              <input type="text" id="edit-agent-occupation">
+            </div>
+            <div class="form-group">
+              <label>性格特点</label>
+              <textarea id="edit-agent-traits" rows="2"></textarea>
+            </div>
+            <div class="form-group">
+              <label>社交倾向</label>
+              <input type="range" id="edit-agent-social" min="0" max="100" value="50">
+              <span id="edit-agent-social-val">0.5</span>
+            </div>
+            <div class="form-group">
+              <label>好奇心</label>
+              <input type="range" id="edit-agent-curiosity" min="0" max="100" value="50">
+              <span id="edit-agent-curiosity-val">0.5</span>
+            </div>
+            <div class="form-group">
+              <label>精力</label>
+              <input type="range" id="edit-agent-energy" min="0" max="100" value="50">
+              <span id="edit-agent-energy-val">0.5</span>
+            </div>
+            <div class="form-group">
+              <label>谨慎度</label>
+              <input type="range" id="edit-agent-caution" min="0" max="100" value="50">
+              <span id="edit-agent-caution-val">0.5</span>
+            </div>
+            <div class="form-group">
+              <label>偏好地点（逗号分隔）</label>
+              <input type="text" id="edit-agent-places">
+            </div>
+            <div class="form-group">
+              <label>偏好活动（逗号分隔）</label>
+              <input type="text" id="edit-agent-activities">
+            </div>
+            <div class="form-group">
+              <label>行为规则（每行一条）</label>
+              <textarea id="edit-agent-rules" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+              <label>背景故事</label>
+              <textarea id="edit-agent-background" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+              <label>目标（每行一个）</label>
+              <textarea id="edit-agent-goals" rows="3"></textarea>
+            </div>
+            <div class="form-actions">
+              <button type="button" id="btn-save-agent" class="btn btn-primary">💾 保存</button>
+              <button type="button" id="btn-cancel-edit" class="btn btn-secondary">取消</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -322,22 +390,72 @@
           <button id="btn-close-add-modal" class="btn-close">×</button>
         </div>
         <div class="modal-body">
-          <form id="add-agent-form">
+          <form id="add-agent-form" novalidate>
             <div class="form-group">
-              <label for="new-agent-name">名称</label>
-              <input type="text" id="new-agent-name" required placeholder="输入名称">
+              <label for="new-agent-name">名称（英文ID）</label>
+              <input type="text" id="new-agent-name" required placeholder="如：xiaolan">
+            </div>
+            <div class="form-group">
+              <label for="new-agent-display-name">显示名称</label>
+              <input type="text" id="new-agent-display-name" required placeholder="如：小兰">
             </div>
             <div class="form-group">
               <label for="new-agent-age">年龄</label>
               <input type="number" id="new-agent-age" min="1" max="120" value="25">
             </div>
             <div class="form-group">
+              <label for="new-agent-occupation">职业</label>
+              <input type="text" id="new-agent-occupation" placeholder="如：医生">
+            </div>
+            <div class="form-group">
               <label for="new-agent-traits">性格特点</label>
               <textarea id="new-agent-traits" rows="2" placeholder="描述性格..."></textarea>
             </div>
             <div class="form-group">
+              <label>性格权重</label>
+              <div class="slider-group">
+                <label>社交 <span id="new-social-val">0.50</span></label>
+                <input type="range" id="new-agent-social" min="0" max="100" value="50">
+                <label>好奇 <span id="new-curiosity-val">0.50</span></label>
+                <input type="range" id="new-agent-curiosity" min="0" max="100" value="50">
+                <label>精力 <span id="new-energy-val">0.50</span></label>
+                <input type="range" id="new-agent-energy" min="0" max="100" value="50">
+                <label>谨慎 <span id="new-caution-val">0.50</span></label>
+                <input type="range" id="new-agent-caution" min="0" max="100" value="50">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="new-agent-places">偏好地点（逗号分隔）</label>
+              <input type="text" id="new-agent-places" placeholder="咖啡馆, 公园">
+            </div>
+            <div class="form-group">
+              <label for="new-agent-activities">偏好活动（逗号分隔）</label>
+              <input type="text" id="new-agent-activities" placeholder="学习, 社交">
+            </div>
+            <div class="form-group">
+              <label for="new-agent-rules">行为规则（每行一条）</label>
+              <textarea id="new-agent-rules" rows="3" placeholder="上午优先学习&#10;遇到朋友主动打招呼"></textarea>
+            </div>
+            <div class="form-group">
               <label for="new-agent-background">背景故事</label>
               <textarea id="new-agent-background" rows="3" placeholder="背景故事..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="new-agent-goals">目标（每行一个）</label>
+              <textarea id="new-agent-goals" rows="2" placeholder="探索世界&#10;结交朋友"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="new-agent-sprite-select">精灵图（可选）</label>
+              <select id="new-agent-sprite-select">
+                <option value="">无精灵图</option>
+              </select>
+              <div id="sprite-select-preview" class="sprite-select-preview hidden"></div>
+            </div>
+            <div class="form-group">
+              <label for="new-agent-portrait-select">头像（可选）</label>
+              <select id="new-agent-portrait-select">
+                <option value="">无头像</option>
+              </select>
             </div>
             <div class="form-actions">
               <button type="submit" class="btn btn-primary">确认添加</button>

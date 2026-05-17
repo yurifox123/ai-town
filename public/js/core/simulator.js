@@ -3,6 +3,7 @@
  * 管理所有Agent、世界状态和时间推进
  */
 import Agent from "./agent.js";
+import { normalizeTemplate } from "./personality.js";
 
 class WorldSimulator extends EventTarget {
   constructor(
@@ -213,6 +214,7 @@ class WorldSimulator extends EventTarget {
    * 添加Agent
    */
   async addAgent(config, position = null) {
+    config = normalizeTemplate(config);
     const agent = new Agent(config, this.llm);
 
     if (position) {
@@ -254,11 +256,10 @@ class WorldSimulator extends EventTarget {
       agent.setPosition(newPos);
     }
 
-    try {
-      await agent.initialize();
-    } catch (err) {
+    // 非阻塞初始化 — LLM 不可用时不卡住加载流程
+    agent.initialize().catch((err) => {
       console.error(`Agent ${agent.name} 初始化失败:`, err);
-    }
+    });
 
     this.agents.set(agent.id, agent);
     // 注册占用
@@ -603,37 +604,6 @@ class WorldSimulator extends EventTarget {
   }
 
   /**
-   * 将区域转换为Agent可用的对象格式
-   */
-  areasToObjects() {
-    const objects = new Map();
-    for (const area of this.areas) {
-      if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
-      if (!area.services || area.services.length === 0) continue;
-
-      // 计算区域中心位置
-      let sumX = 0,
-        sumY = 0;
-      for (const c of area.cells) {
-        sumX += c.x;
-        sumY += c.y;
-      }
-      const center = {
-        x: Math.round(sumX / area.cells.length),
-        y: Math.round(sumY / area.cells.length),
-      };
-
-      objects.set(area.id, {
-        name: area.name,
-        position: center,
-        services: area.services,
-        cells: area.cells,
-      });
-    }
-    return objects;
-  }
-
-  /**
    * 获取世界状态
    */
   getWorldState() {
@@ -752,14 +722,6 @@ class WorldSimulator extends EventTarget {
     this.agents.clear();
 
     return configs;
-  }
-
-  getIsRunning() {
-    return this.isRunning;
-  }
-
-  getTickCount() {
-    return this.tickCount;
   }
 }
 

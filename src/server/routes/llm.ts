@@ -1,9 +1,9 @@
 import http from "http";
 import dotenv from "dotenv";
+import { readJsonBody } from "../middleware/json";
 dotenv.config();
 
 const llmConfig = {
-  provider: process.env.LLM_PROVIDER || "custom",
   model: process.env.CUSTOM_MODEL || "kimi-k2.5",
   apiKey: process.env.CUSTOM_API_KEY,
   endpoint:
@@ -14,7 +14,8 @@ const llmConfig = {
 
 const embeddingConfig = {
   endpoint: process.env.CUSTOM_EMBEDDING_ENDPOINT,
-  responsePath: process.env.CUSTOM_EMBEDDING_RESPONSE_PATH || "data[0].embedding",
+  responsePath:
+    process.env.CUSTOM_EMBEDDING_RESPONSE_PATH || "data[0].embedding",
 };
 
 function getValueByPath(obj: unknown, path: string): unknown {
@@ -27,7 +28,10 @@ function getValueByPath(obj: unknown, path: string): unknown {
   return value;
 }
 
-async function callLLM(messages: unknown[], options: Record<string, unknown> = {}) {
+async function callLLM(
+  messages: unknown[],
+  options: Record<string, unknown> = {},
+) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-api-key": llmConfig.apiKey as string,
@@ -61,10 +65,12 @@ async function callLLM(messages: unknown[], options: Record<string, unknown> = {
 
   let content: unknown;
   if (data.content && Array.isArray(data.content)) {
-    const textBlock = (data.content as Array<{ type: string; text: string }>).find(
-      (b) => b.type === "text"
-    );
-    content = textBlock ? textBlock.text : getValueByPath(data, llmConfig.responsePath);
+    const textBlock = (
+      data.content as Array<{ type: string; text: string }>
+    ).find((b) => b.type === "text");
+    content = textBlock
+      ? textBlock.text
+      : getValueByPath(data, llmConfig.responsePath);
   } else {
     content = getValueByPath(data, llmConfig.responsePath);
   }
@@ -91,27 +97,14 @@ async function getEmbedding(text: string): Promise<number[] | null> {
   }
 
   const data = await response.json();
-  return (getValueByPath(data, embeddingConfig.responsePath) as number[]) ?? null;
-}
-
-function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(e);
-      }
-    });
-    req.on("error", reject);
-  });
+  return (
+    (getValueByPath(data, embeddingConfig.responsePath) as number[]) ?? null
+  );
 }
 
 export async function handleLlmChat(
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
 ) {
   try {
     const body = await readJsonBody(req);
@@ -131,7 +124,7 @@ export async function handleLlmChat(
 
 export async function handleLlmEmbedding(
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
 ) {
   try {
     const body = await readJsonBody(req);

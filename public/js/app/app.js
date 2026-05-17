@@ -8,13 +8,12 @@ import imageLoader from "../assets/image-loader.js";
 import {
   getCharacterSprite,
   getCharacterPortrait,
-  getBuildingSprite,
   getCharacterDisplaySize,
-  getBuildingDisplaySize,
   getCharacterAnimation,
   getCharacterKey,
   ASSET_CONFIG,
 } from "../assets/asset-config.js";
+import { normalizeTemplate } from "../core/personality.js";
 
 // ========== 拖拽平移状态 ==========
 let isPanning = false;
@@ -38,9 +37,6 @@ const CONFIG = {
   MAP_IMAGE_HEIGHT: 1024,
   MAP_TOP_OFFSET: 28, // 地图顶部裁剪像素
   AGENT_COLOR: "#e94560",
-  BUILDING_COLOR: "#4a90d9",
-  AREA_COLOR: "#28a745",
-  REFRESH_RATE: 1000 / 30,
   TICK_INTERVAL: 5000,
   TIME_SCALE: 5,
   SPRITE_SCALE: 1.0,
@@ -54,7 +50,12 @@ const agentTemplates = {
     id: "xiaoming",
     name: "小明",
     age: 25,
+    occupation: "软件工程师",
     traits: "开朗活泼，喜欢社交，热爱咖啡和音乐",
+    personality: { social: 0.8, curiosity: 0.7, energy: 0.6, caution: 0.5 },
+    preferences: { places: ["咖啡馆", "公园"], activities: ["学习", "社交"] },
+    routine: { wakeTime: 8, sleepTime: 23 },
+    rules: ["上午优先学习新技能", "遇到朋友主动打招呼", "每天至少去一次咖啡馆"],
     background:
       "一名软件工程师，在一家互联网公司工作。喜欢尝试新事物，周末经常和朋友聚会。",
     goals: ["学习新技能", "结交新朋友", "保持健康生活方式"],
@@ -66,7 +67,12 @@ const agentTemplates = {
     id: "xiaohong",
     name: "小红",
     age: 24,
+    occupation: "图书管理员",
     traits: "温柔细腻，喜欢阅读，安静内敛",
+    personality: { social: 0.3, curiosity: 0.8, energy: 0.5, caution: 0.7 },
+    preferences: { places: ["图书馆", "咖啡馆"], activities: ["阅读", "绘画"] },
+    routine: { wakeTime: 7, sleepTime: 22 },
+    rules: ["上午在图书馆看书", "下午去咖啡馆阅读", "偶尔参加艺术活动"],
     background:
       "一名图书管理员，热爱文学和艺术。喜欢在咖啡馆看书，享受独处时光。",
     goals: ["读完 100 本书", "学习绘画", "开一家咖啡馆"],
@@ -78,7 +84,15 @@ const agentTemplates = {
     id: "xiaomi",
     name: "小米",
     age: 22,
+    occupation: "美食博主",
     traits: "活泼可爱，喜欢美食，乐观向上",
+    personality: { social: 0.9, curiosity: 0.9, energy: 0.8, caution: 0.3 },
+    preferences: {
+      places: ["咖啡馆", "餐厅"],
+      activities: ["品尝美食", "拍照"],
+    },
+    routine: { wakeTime: 9, sleepTime: 24 },
+    rules: ["每天尝试新的食物", "遇到有趣的人就拍照聊天", "去各个餐厅探店"],
     background:
       "一名美食博主，喜欢探索各种美食。性格开朗，总是能给身边的人带来快乐。",
     goals: ["成为顶级美食博主", "开一家餐厅", "环游世界品尝美食"],
@@ -90,7 +104,12 @@ const agentTemplates = {
     id: "xiaodong",
     name: "小东",
     age: 26,
+    occupation: "健身教练",
     traits: "沉稳内敛，喜欢运动，注重健康",
+    personality: { social: 0.5, curiosity: 0.4, energy: 0.9, caution: 0.8 },
+    preferences: { places: ["健身房", "公园"], activities: ["运动", "跑步"] },
+    routine: { wakeTime: 6, sleepTime: 22 },
+    rules: ["每天早上跑步", "上午在健身房带课", "晚上在公园散步"],
     background: "一名健身教练，热爱各种运动。生活规律，是朋友们的健康顾问。",
     goals: ["帮助更多人健康生活", "参加马拉松比赛", "开一家健身房"],
     healthMax: 100,
@@ -127,11 +146,6 @@ const state = {
 
 // ========== DOM 元素缓存 ==========
 let elements = {};
-
-// 编辑模式状态
-let isDragging = false;
-let isPainting = false;
-let lastPaintedCell = null;
 
 // 对话气泡管理
 const dialogueBubbles = new Map();
@@ -190,34 +204,8 @@ async function init() {
   // 初始化编辑模式
   initEditor();
 
-  // 加载默认地图数据
-  fetch("/assets/default-map.json")
-    .then((r) => r.json())
-    .then((data) => {
-      if (data.tileSize) {
-        CONFIG.MAP_CELL_SIZE = data.tileSize;
-        const tileInput = document.getElementById("tile-size-input");
-        if (tileInput) tileInput.value = data.tileSize;
-      }
-      if (data.areas && data.areas.length > 0) {
-        state.areas = data.areas.map((a) => {
-          if (a.cells) return a;
-          if (a.w != null && a.h != null) {
-            return {
-              id: a.id,
-              name: a.name || "",
-              cells: rectToCells(a.x, a.y, a.w, a.h),
-              isBlocked: a.isBlocked,
-            };
-          }
-          return a;
-        });
-        state.world.setAreas(state.areas);
-        state.world.updateGridSize(CONFIG.MAP_CELL_SIZE);
-        saveAreaHistory();
-      }
-    })
-    .catch(() => {});
+  // 加载地图数据：优先从数据库加载，没有则从默认文件加载
+  loadMapFromDBOrDefault();
 
   // 更新 UI
   updateUI();
@@ -331,6 +319,7 @@ function setupUIListeners() {
 
   // 快捷操作
   document.getElementById("btn-add-agent").addEventListener("click", () => {
+    loadSpriteOptions();
     showModal("add-agent-modal");
   });
   document.getElementById("btn-trigger-event").addEventListener("click", () => {
@@ -369,6 +358,28 @@ function setupUIListeners() {
       hideModal("event-modal");
     });
 
+  // 编辑模式切换
+  document.getElementById("btn-edit-agent").addEventListener("click", () => {
+    enterEditMode();
+  });
+  document.getElementById("btn-cancel-edit").addEventListener("click", () => {
+    exitEditMode();
+  });
+  document.getElementById("btn-save-agent").addEventListener("click", () => {
+    saveAgentEdit();
+  });
+
+  // Slider 值显示更新
+  ["social", "curiosity", "energy", "caution"].forEach((key) => {
+    const slider = document.getElementById(`edit-agent-${key}`);
+    const display = document.getElementById(`edit-agent-${key}-val`);
+    if (slider && display) {
+      slider.addEventListener("input", () => {
+        display.textContent = (slider.value / 100).toFixed(2);
+      });
+    }
+  });
+
   // 表单提交
   document
     .getElementById("add-agent-form")
@@ -376,6 +387,41 @@ function setupUIListeners() {
   document
     .getElementById("event-form")
     .addEventListener("submit", handleTriggerEvent);
+
+  // 加载精灵图和头像下拉列表
+  loadSpriteOptions();
+
+  // 新增 Agent 弹窗的滑块值更新
+  ["social", "curiosity", "energy", "caution"].forEach((key) => {
+    const slider = document.getElementById(`new-agent-${key}`);
+    const display = document.getElementById(`new-${key}-val`);
+    if (slider && display) {
+      slider.addEventListener("input", () => {
+        display.textContent = (slider.value / 100).toFixed(2);
+      });
+    }
+  });
+
+  // 新增 Agent 精灵预览
+  ["sprite", "portrait"].forEach((type) => {
+    const fileInput = document.getElementById(`new-agent-${type}`);
+    const preview = document.getElementById(`${type}-preview`);
+    if (fileInput && preview) {
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            preview.src = reader.result;
+            preview.classList.remove("hidden");
+          };
+          reader.readAsDataURL(file);
+        } else {
+          preview.classList.add("hidden");
+        }
+      });
+    }
+  });
 
   // Tab 切换
   document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -448,9 +494,6 @@ function initCanvas() {
       state.paintedCells = new Set();
       state.affectedCells = new Set();
     }
-    isPainting = false;
-    isDragging = false;
-    dragBuilding = null;
     if (isPanning) {
       isPanning = false;
       state.canvas.parentElement.style.cursor = "grab";
@@ -624,18 +667,13 @@ function drawMap() {
     drawAreaOverlays(ctx);
   }
 
-  // 4. 绘制建筑/对象
+  // 4. 绘制 Agent
   const worldState = state.world.getWorldState();
-  for (const obj of worldState.objects.values()) {
-    drawObject(ctx, obj, cellSize);
-  }
-
-  // 5. 绘制 Agent
   for (const agentState of worldState.agents.values()) {
     drawAgent(ctx, agentState, cellSize);
   }
 
-  // 6. 更新缩略图视口
+  // 5. 更新缩略图视口
   updateMinimapViewport();
 }
 
@@ -1103,6 +1141,15 @@ function saveMapData() {
     tileSize: CONFIG.MAP_CELL_SIZE,
     areas: state.areas,
   };
+
+  // 保存到后端数据库
+  fetch("/api/map/areas", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ areas: state.areas }),
+  }).catch((err) => console.error("保存地图到数据库失败:", err));
+
+  // 也导出本地文件作为备份
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json",
   });
@@ -1114,12 +1161,59 @@ function saveMapData() {
   URL.revokeObjectURL(url);
 }
 
+async function loadMapFromDBOrDefault() {
+  try {
+    const res = await fetch("/api/map/areas");
+    if (res.ok) {
+      const areas = await res.json();
+      if (areas && areas.length > 0) {
+        state.areas = areas;
+        state.world.setAreas(state.areas);
+        state.world.updateGridSize(CONFIG.MAP_CELL_SIZE);
+        saveAreaHistory();
+        return;
+      }
+    }
+  } catch (err) {
+    console.log("数据库无地图数据，从默认文件加载");
+  }
+
+  // 从默认文件加载
+  fetch("/assets/default-map.json")
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.tileSize) {
+        CONFIG.MAP_CELL_SIZE = data.tileSize;
+        const tileInput = document.getElementById("tile-size-input");
+        if (tileInput) tileInput.value = data.tileSize;
+      }
+      if (data.areas && data.areas.length > 0) {
+        state.areas = data.areas.map((a) => {
+          if (a.cells) return a;
+          if (a.w != null && a.h != null) {
+            return {
+              id: a.id,
+              name: a.name || "",
+              cells: rectToCells(a.x, a.y, a.w, a.h),
+              isBlocked: a.isBlocked,
+            };
+          }
+          return a;
+        });
+        state.world.setAreas(state.areas);
+        state.world.updateGridSize(CONFIG.MAP_CELL_SIZE);
+        saveAreaHistory();
+      }
+    })
+    .catch(() => {});
+}
+
 function loadMapData(e) {
   const file = e.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (event) => {
+  reader.onload = async (event) => {
     try {
       const data = JSON.parse(event.target.result);
       if (data.tileSize) {
@@ -1142,6 +1236,13 @@ function loadMapData(e) {
         });
         state.world.setAreas(state.areas);
         renderAreaListInEditor();
+
+        // 保存到后端数据库
+        fetch("/api/map/areas", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ areas: state.areas }),
+        }).catch((err) => console.error("保存地图到数据库失败:", err));
       }
     } catch (err) {
       console.error("加载地图数据失败:", err);
@@ -1156,60 +1257,6 @@ function clearMap() {
   state.editorSelectedArea = null;
   renderAreaListInEditor();
   renderAreaProperties(null);
-}
-
-// ========== 建筑绘制 ==========
-function drawObject(ctx, obj, cellSize) {
-  const x = obj.position.x * cellSize;
-  const y = obj.position.y * cellSize;
-
-  // 尝试获取建筑图片
-  const spritePath = getBuildingSprite(obj.id);
-  const sprite = spritePath ? imageLoader.getImage(spritePath) : null;
-  const displaySize = getBuildingDisplaySize(obj.id);
-
-  if (sprite) {
-    const drawWidth = displaySize[0] * CONFIG.SPRITE_SCALE;
-    const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
-
-    // 绘制建筑
-    ctx.drawImage(
-      sprite,
-      x - drawWidth / 2,
-      y - drawHeight / 2,
-      drawWidth,
-      drawHeight,
-    );
-  } else {
-    // 回退到原始矩形
-    const size = cellSize * 3;
-    switch (obj.type) {
-      case "building":
-        ctx.fillStyle = CONFIG.BUILDING_COLOR;
-        break;
-      case "area":
-        ctx.fillStyle = CONFIG.AREA_COLOR;
-        break;
-      default:
-        ctx.fillStyle = "#6c757d";
-    }
-    ctx.fillRect(x - size / 2, y - size / 2, size, size);
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - size / 2, y - size / 2, size, size);
-  }
-
-  // 名称标签
-  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-  const textMeasure = ctx.measureText(obj.name);
-  const nameWidth = textMeasure.width + 10;
-  const labelY = y + (sprite ? displaySize[1] : cellSize * 3) / 2 + 6;
-  ctx.fillRect(x - nameWidth / 2, labelY - 12, nameWidth, 18);
-
-  ctx.fillStyle = "#fff";
-  ctx.font = "10px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(obj.name, x, labelY + 2);
 }
 
 // ========== Agent 绘制 ==========
@@ -1608,27 +1655,6 @@ function handleMouseMove(e) {
     ) {
       hovered = { type: "agent", data: agent };
       break;
-    }
-  }
-
-  // 检查建筑
-  if (!hovered) {
-    for (const obj of worldState.objects.values()) {
-      const displaySize = getBuildingDisplaySize(obj.id);
-      const drawWidth = displaySize[0] * CONFIG.SPRITE_SCALE;
-      const drawHeight = displaySize[1] * CONFIG.SPRITE_SCALE;
-      const ox = obj.position.x * cellSize;
-      const oy = obj.position.y * cellSize;
-
-      if (
-        mouseX >= ox - (drawWidth / 2) * 1.5 &&
-        mouseX <= ox + (drawWidth / 2) * 1.5 &&
-        mouseY >= oy - (drawHeight / 2) * 1.5 &&
-        mouseY <= oy + (drawHeight / 2) * 1.5
-      ) {
-        hovered = { type: "object", data: obj };
-        break;
-      }
     }
   }
 
@@ -2097,6 +2123,7 @@ function renderAgentList() {
             <span class="stat ${fullnessPercent < 0.2 ? "stat-critical" : fullnessPercent < 0.4 ? "stat-warning" : ""}" title="饱腹">🍖 ${fullnessValue}/100</span>
           </div>
         </div>
+        <button class="agent-delete-btn" data-agent-id="${agent.agentId}" title="删除角色">✕</button>
       </div>
     `;
     })
@@ -2105,8 +2132,28 @@ function renderAgentList() {
   container.innerHTML = html;
 
   container.querySelectorAll(".agent-item").forEach((item) => {
-    item.addEventListener("click", () => {
+    item.addEventListener("click", (e) => {
+      if (e.target.closest(".agent-delete-btn")) return;
       showAgentDetails(item.dataset.agentId);
+    });
+  });
+
+  container.querySelectorAll(".agent-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const agentId = btn.dataset.agentId;
+      const agent = state.world.agents.get(agentId);
+      const name = agent?.name || agentId;
+      if (!confirm(`确定要删除角色「${name}」吗？`)) return;
+      try {
+        const res = await fetch(`/api/agents/${agentId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(await res.text());
+        state.world.removeAgent(agentId);
+        renderAgentList();
+        drawMap();
+      } catch (err) {
+        alert(`删除失败: ${err.message}`);
+      }
     });
   });
 }
@@ -2114,6 +2161,9 @@ function renderAgentList() {
 function showAgentDetails(agentId) {
   const agent = state.world.agents.get(agentId);
   if (!agent) return;
+
+  currentEditAgentId = agentId;
+  exitEditMode(); // 确保打开 modal 时在查看模式
 
   const memoryData = agent.memory.exportData();
   const portraitPath = getCharacterPortrait(agent.agentId);
@@ -2222,6 +2272,151 @@ function showAgentDetails(agentId) {
   showModal("agent-modal");
 }
 
+// ========== 编辑模式 ==========
+let currentEditAgentId = null;
+
+function enterEditMode() {
+  const agent = state.world.agents.get(currentEditAgentId);
+  if (!agent) return;
+
+  // 填充表单
+  document.getElementById("edit-agent-name").value = agent.name;
+  document.getElementById("edit-agent-age").value = agent.config.age;
+  document.getElementById("edit-agent-occupation").value =
+    agent.config.occupation || "普通居民";
+  document.getElementById("edit-agent-traits").value = agent.config.traits;
+  document.getElementById("edit-agent-background").value =
+    agent.config.background;
+  document.getElementById("edit-agent-goals").value = (
+    agent.config.goals || []
+  ).join("\n");
+
+  const p = agent.config.personality || {
+    social: 0.5,
+    curiosity: 0.5,
+    energy: 0.5,
+    caution: 0.5,
+  };
+  ["social", "curiosity", "energy", "caution"].forEach((key) => {
+    const slider = document.getElementById(`edit-agent-${key}`);
+    const display = document.getElementById(`edit-agent-${key}-val`);
+    slider.value = Math.round((p[key] ?? 0.5) * 100);
+    display.textContent = (p[key] ?? 0.5).toFixed(2);
+  });
+
+  const prefs = agent.config.preferences || { places: [], activities: [] };
+  document.getElementById("edit-agent-places").value = (
+    prefs.places || []
+  ).join(", ");
+  document.getElementById("edit-agent-activities").value = (
+    prefs.activities || []
+  ).join(", ");
+
+  document.getElementById("edit-agent-rules").value = (
+    agent.config.rules || []
+  ).join("\n");
+
+  document.getElementById("agent-view-mode").classList.add("hidden");
+  document.getElementById("agent-edit-mode").classList.remove("hidden");
+}
+
+function exitEditMode() {
+  document.getElementById("agent-view-mode").classList.remove("hidden");
+  document.getElementById("agent-edit-mode").classList.add("hidden");
+}
+
+async function saveAgentEdit() {
+  const agent = state.world.agents.get(currentEditAgentId);
+  if (!agent) return;
+
+  const formData = {
+    name: document.getElementById("edit-agent-name").value.trim(),
+    age: parseInt(document.getElementById("edit-agent-age").value),
+    traits: document.getElementById("edit-agent-traits").value.trim(),
+    occupation: document.getElementById("edit-agent-occupation").value.trim(),
+    background: document.getElementById("edit-agent-background").value.trim(),
+    goals: document
+      .getElementById("edit-agent-goals")
+      .value.trim()
+      .split("\n")
+      .filter(Boolean),
+    personality: {
+      social:
+        parseFloat(document.getElementById("edit-agent-social").value) / 100,
+      curiosity:
+        parseFloat(document.getElementById("edit-agent-curiosity").value) / 100,
+      energy:
+        parseFloat(document.getElementById("edit-agent-energy").value) / 100,
+      caution:
+        parseFloat(document.getElementById("edit-agent-caution").value) / 100,
+    },
+    preferences: {
+      places: document
+        .getElementById("edit-agent-places")
+        .value.split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      activities: document
+        .getElementById("edit-agent-activities")
+        .value.split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    },
+    rules: document
+      .getElementById("edit-agent-rules")
+      .value.split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+
+  // 同步到后端数据库
+  try {
+    const res = await fetch(`/api/agents/${currentEditAgentId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formData),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`保存失败: ${err.error}`);
+      return;
+    }
+  } catch (e) {
+    alert(`保存失败: ${e.message}`);
+    return;
+  }
+
+  // 更新本地 agent 对象
+  agent.name = formData.name;
+  agent.config = {
+    ...agent.config,
+    name: formData.name,
+    age: formData.age,
+    traits: formData.traits,
+    occupation: formData.occupation,
+    background: formData.background,
+    goals: formData.goals,
+    personality: formData.personality,
+    preferences: formData.preferences,
+    rules: formData.rules,
+  };
+
+  // 同步到 Agent 实例上的直接属性（prompt 函数读取用）
+  if (agent.personality) {
+    Object.assign(agent.personality, formData.personality);
+  }
+  agent.rules = formData.rules;
+  agent.preferences = formData.preferences;
+  agent.occupation = formData.occupation;
+
+  // 更新 UI
+  document.getElementById("modal-agent-name").textContent = agent.name;
+  document.getElementById("modal-agent-traits").textContent =
+    agent.config.traits;
+
+  exitEditMode();
+}
+
 // ========== 事件日志 ==========
 function addEvent(event) {
   const container = document.getElementById("event-log");
@@ -2253,26 +2448,108 @@ function addEvent(event) {
 
 // ========== Agent 管理 ==========
 async function addDefaultAgents() {
-  const positions = [
+  // 先确保 4 个默认角色存在
+  const defaultPositions = [
     { name: "xiaoming", x: 5, y: 5 },
     { name: "xiaohong", x: 6, y: 5 },
     { name: "xiaomi", x: 7, y: 5 },
     { name: "xiaodong", x: 8, y: 5 },
   ];
 
-  const total = positions.length;
-  for (let i = 0; i < positions.length; i++) {
-    const pos = positions[i];
-    const template = agentTemplates[pos.name];
-    if (template) {
-      const name = template.name || pos.name;
-      updateLoadingText(`正在初始化 ${name}... (${i + 1}/${total})`);
-      updateLoadingProgress(30 + ((i / total) * 60));
+  const res = await fetch("/api/agents");
+  const dbAgents = res.ok ? await res.json() : [];
+  const dbMap = new Map(dbAgents.map((a) => [a.id, a]));
+
+  // 创建缺失的默认角色
+  for (const pos of defaultPositions) {
+    if (!dbMap.has(pos.name)) {
+      const template = {
+        ...agentTemplates[pos.name],
+        position_x: pos.x,
+        position_y: pos.y,
+      };
+      if (!template.id) continue;
+      updateLoadingText(`正在创建 ${template.name}...`);
       try {
-        await state.world.addAgent(template, { x: pos.x, y: pos.y });
+        await createAgentInDB(template);
       } catch (err) {
-        console.error(`添加 Agent ${name} 失败:`, err);
+        console.error(`创建 Agent ${template.name} 失败:`, err);
       }
+    }
+  }
+
+  // 重新获取完整列表
+  const res2 = await fetch("/api/agents");
+  const allAgents = res2.ok ? await res2.json() : [];
+  const total = allAgents.length;
+
+  // 默认角色的固定位置
+  const defaultPosMap = {};
+  for (const p of defaultPositions) defaultPosMap[p.name] = { x: p.x, y: p.y };
+
+  for (let i = 0; i < allAgents.length; i++) {
+    const existing = allAgents[i];
+    const template = {
+      id: existing.id,
+      name: existing.name,
+      age: existing.age,
+      traits: existing.traits || "",
+      background: existing.background || "",
+      occupation: existing.occupation || "普通居民",
+      personality: parseJSONField(existing.personality, {
+        social: 0.5,
+        curiosity: 0.5,
+        energy: 0.5,
+        caution: 0.5,
+      }),
+      preferences: parseJSONField(existing.preferences, {
+        places: [],
+        activities: [],
+      }),
+      rules: parseJSONField(existing.rules, []),
+      routine: parseJSONField(existing.routine, {
+        wakeTime: 7,
+        sleepTime: 23,
+      }),
+      goals: parseJSONField(existing.goals, ["探索世界", "结交朋友"]),
+      healthMax: existing.health_max,
+      greenPoints: existing.green_points,
+      fullness: existing.fullness,
+    };
+    updateLoadingText(`正在加载 ${template.name}... (${i + 1}/${total})`);
+    updateLoadingProgress(30 + (i / total) * 60);
+    try {
+      let pos;
+      if (defaultPosMap[template.id]) {
+        // 默认角色始终用固定位置
+        pos = defaultPosMap[template.id];
+      } else if (existing.position_x !== 0 || existing.position_y !== 0) {
+        pos = { x: existing.position_x, y: existing.position_y };
+      } else {
+        pos = null;
+      }
+      await state.world.addAgent(template, pos);
+      // 默认角色位置可能被改过，始终回写固定位置
+      if (defaultPosMap[template.id] && pos) {
+        fetch(`/api/agents/${template.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ position_x: pos.x, position_y: pos.y }),
+        }).catch(() => {});
+      }
+      if (!pos) {
+        const agent = state.world.agents.get(template.id);
+        if (agent) {
+          const p = agent.getPosition();
+          fetch(`/api/agents/${template.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ position_x: p.x, position_y: p.y }),
+          }).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error(`加载 Agent ${template.name} 失败:`, err);
     }
   }
   updateLoadingText("全部就绪！");
@@ -2282,25 +2559,179 @@ async function addDefaultAgents() {
   hideLoadingScreen();
 }
 
+function parseJSONField(value, fallback) {
+  if (!value) return Array.isArray(fallback) ? [...fallback] : { ...fallback };
+  try {
+    return JSON.parse(value);
+  } catch {
+    return Array.isArray(fallback) ? [...fallback] : { ...fallback };
+  }
+}
+
+async function createAgentInDB(template) {
+  const body = {
+    id: template.id,
+    name: template.name,
+    age: template.age,
+    traits: template.traits || "",
+    background: template.background || "",
+    goals: template.goals || [],
+    occupation: template.occupation || "普通居民",
+    personality: JSON.stringify(
+      template.personality || {
+        social: 0.5,
+        curiosity: 0.5,
+        energy: 0.5,
+        caution: 0.5,
+      },
+    ),
+    preferences: JSON.stringify(
+      template.preferences || { places: [], activities: [] },
+    ),
+    rules: JSON.stringify(template.rules || []),
+    routine: JSON.stringify(template.routine || { wakeTime: 7, sleepTime: 23 }),
+    position_x: template.position_x ?? 0,
+    position_y: template.position_y ?? 0,
+    health_max: template.healthMax || 100,
+    green_points: template.greenPoints || 10,
+    fullness: template.fullness || 80,
+    sprite_path: template.spritePath || null,
+    portrait_path: template.portraitPath || null,
+  };
+  const res = await fetch("/api/agents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function loadSpriteOptions() {
+  try {
+    const res = await fetch("/api/sprites/list");
+    if (!res.ok) return;
+    const { sprites, portraits } = await res.json();
+
+    const spriteSelect = document.getElementById("new-agent-sprite-select");
+    const portraitSelect = document.getElementById("new-agent-portrait-select");
+
+    if (spriteSelect) {
+      spriteSelect.innerHTML = '<option value="">无精灵图</option>';
+      for (const s of sprites) {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = `${s.id} (${s.frameCount}帧)`;
+        spriteSelect.appendChild(opt);
+      }
+    }
+
+    if (portraitSelect) {
+      portraitSelect.innerHTML = '<option value="">无头像</option>';
+      for (const p of portraits) {
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = p;
+        portraitSelect.appendChild(opt);
+      }
+    }
+  } catch (err) {
+    console.error("加载精灵选项失败:", err);
+  }
+}
+
 async function handleAddAgent(e) {
   e.preventDefault();
-  const name = document.getElementById("new-agent-name").value;
-  const age = parseInt(document.getElementById("new-agent-age").value);
-  const traits = document.getElementById("new-agent-traits").value;
-  const background = document.getElementById("new-agent-background").value;
+  try {
+    const agentId = document.getElementById("new-agent-name").value.trim();
+    const displayName = document
+      .getElementById("new-agent-display-name")
+      .value.trim();
+    const age = parseInt(document.getElementById("new-agent-age").value);
+    const traits = document.getElementById("new-agent-traits").value.trim();
+    const background = document
+      .getElementById("new-agent-background")
+      .value.trim();
+    const occupation = document
+      .getElementById("new-agent-occupation")
+      .value.trim();
+    const goalsText = document.getElementById("new-agent-goals").value.trim();
 
-  const template = {
-    id: `agent_${Date.now()}`,
-    name,
-    age,
-    traits,
-    background,
-    goals: ["探索世界", "结交朋友"],
-  };
+    const personality = {
+      social:
+        parseFloat(document.getElementById("new-agent-social").value) / 100,
+      curiosity:
+        parseFloat(document.getElementById("new-agent-curiosity").value) / 100,
+      energy:
+        parseFloat(document.getElementById("new-agent-energy").value) / 100,
+      caution:
+        parseFloat(document.getElementById("new-agent-caution").value) / 100,
+    };
 
-  await state.world.addAgent(template);
-  hideModal("add-agent-modal");
-  e.target.reset();
+    const placesText = document.getElementById("new-agent-places").value;
+    const activitiesText = document.getElementById(
+      "new-agent-activities",
+    ).value;
+    const preferences = {
+      places: placesText
+        .split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      activities: activitiesText
+        .split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    };
+
+    const rulesText = document.getElementById("new-agent-rules").value.trim();
+    const rules = rulesText
+      ? rulesText
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    const template = {
+      id: agentId,
+      name: displayName || agentId,
+      age,
+      traits: traits || "普通居民",
+      background,
+      occupation: occupation || "普通居民",
+      goals: goalsText
+        ? goalsText
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : ["探索世界", "结交朋友"],
+      personality,
+      preferences,
+      rules,
+    };
+
+    await createAgentInDB(template);
+    await state.world.addAgent(template);
+
+    // 根据选择更新 asset-config
+    const spriteId = document.getElementById("new-agent-sprite-select").value;
+    const portraitFile = document.getElementById("new-agent-portrait-select").value;
+    await updateAssetConfig(agentId, spriteId || null, portraitFile || null);
+
+    hideModal("add-agent-modal");
+    e.target.reset();
+    renderAgentList();
+  } catch (err) {
+    console.error("添加角色失败:", err);
+    alert("添加角色失败: " + err.message);
+  }
+}
+
+async function updateAssetConfig(agentId, spriteId, portraitFile) {
+  await fetch("/api/sprites/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: agentId, spriteId, portraitFile }),
+  }).catch((err) => console.error("更新精灵配置失败:", err));
 }
 
 function handleTriggerEvent(e) {

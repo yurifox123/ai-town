@@ -4,6 +4,13 @@
  */
 import MemorySystem from "./memory.js";
 import PathFinder from "./pathfinder.js";
+import {
+  normalizeTemplate,
+  buildSystemPrompt,
+  buildDecisionPrompt,
+  buildConversationPrompt,
+  buildPlanPrompt,
+} from "./personality.js";
 
 class Agent {
   constructor(config, llmClient) {
@@ -24,7 +31,6 @@ class Agent {
     this.decisionInterval = 50; // 每50格做一次新决策
     this.moveInterval = null; // 移动定时器
     this.moveSpeed = 200; // 每 0.2 秒 (200ms) 走一格
-    this.moveListeners = []; // 移动监听（用于通知渲染更新）
 
     this.currentPlan = null;
     this.currentAction = null;
@@ -62,12 +68,18 @@ class Agent {
       MOVE: "MOVE",
       INTERACT: "INTERACT",
       TALK: "TALK",
-      THINK: "THINK",
       WAIT: "WAIT",
       SLEEP: "SLEEP",
       WORK: "WORK",
       BUY: "BUY",
     };
+
+    // 人格数据（从 normalizeTemplate 后的 config 提取）
+    this.personality = config.personality;
+    this.rules = config.rules;
+    this.preferences = config.preferences;
+    this.routine = config.routine;
+    this.occupation = config.occupation;
 
     // 世界引用（用于地形碰撞检测）
     this.world = null;
@@ -77,20 +89,21 @@ class Agent {
    * 初始化Agent
    */
   async initialize() {
-    // 记录核心记忆
+    const cfg = this.config;
+
     await this.memory.addMemory(
-      `我是${this.name}，${this.config.age}岁。${this.config.background}`,
+      `我是${this.name}，${cfg.age}岁，${cfg.occupation}。${cfg.background}`,
       this.MemoryType.THOUGHT,
       10,
     );
 
     await this.memory.addMemory(
-      `我的性格：${this.config.traits}`,
+      `我的性格：${cfg.traits}。行为规则：${cfg.rules.join("；")}`,
       this.MemoryType.THOUGHT,
       9,
     );
 
-    for (const goal of this.config.goals) {
+    for (const goal of cfg.goals) {
       await this.memory.addMemory(
         `我的目标：${goal}`,
         this.MemoryType.THOUGHT,
@@ -270,75 +283,22 @@ class Agent {
       }
     }
 
-    const prompt = `你是${this.name}，${this.config.age}岁。
-性格: ${this.config.traits}
-
-你的记忆:
-${memoryContext}
-
-当前生存状态:
-- 健康: ${this.health.current}/${this.health.max}
-- 饱腹: ${this.fullness}/100
-- 积分: ${this.greenPoints}
-${survivalContext}
-
-当前情况:
-- 位置: (${this.position.x}, ${this.position.y})
-- 时间: ${worldState.time.toLocaleString()}
-- 状态: ${this.status}
-- 附近: ${this.getNearbyDescription()}
-
-世界中的地点: ${locations.join(", ")}
-
-附近建筑服务:
-${nearbyBuildings || "无"}
-
-请决定你接下来要做什么。用JSON格式输出你的决定：
-{
-  "action": "MOVE|TALK|WAIT|SLEEP|WORK|BUY",
-  "description": "行动描述",
-  "targetX": 目标x坐标(如果是移动),
-  "targetY": 目标y坐标(如果是移动),
-  "hourlyRate": 时薪(如果是工作，可选15-25),
-  "serviceName": "服务名称(如果是购买)"
-}
-
-行动说明:
-- MOVE: 移动到目标位置
-- TALK: 与附近的人交谈
-- WAIT: 原地等待
-- SLEEP: 回家睡觉(恢复健康和饱腹)
-- WORK: 在工作地点工作赚取积分
-- BUY: 在附近建筑购买食物或服务${canBuyFood ? "，你现在就在建筑附近可以购买" : ""}
-
-决策优先级（严格遵循，从高到低）:
-1. 连续2天+没睡觉: 必须立即回家睡觉（SLEEP），不睡觉会扣大量健康值甚至死亡！
-2. 健康<30: 优先休息恢复
-3. 深夜(22:00-6:00): 必须回家睡觉（SLEEP），除非你正在工作赚钱
-4. 饱腹<20且积分>=5: 必须立即购买食物（前往咖啡馆/便利店后BUY）
-5. 饱腹<20但积分<5: 必须先去工作赚钱（WORK），有钱了再买食物
-6. 积分<5（买不起食物）: 优先去咖啡馆或便利店工作赚钱
-7. 饱腹<40且积分>=5: 前往有食物的地方购买
-8. 积分<30: 考虑工作赚钱储备
-
-重要提醒:
-- 不睡觉惩罚：1天不睡-10健康，2天不睡-50健康，3天不睡健康归零直接昏迷！
-- 深夜(22:00-6:00)不睡觉会持续累积不睡觉天数，请按时睡觉。
-${this.consecutiveNoSleepDays >= 1 ? `【警告】你已经${this.consecutiveNoSleepDays}天没睡觉了，请立即SLEEP回家睡觉！` : ""}
-${isNight ? "【深夜】现在就是深夜，请使用SLEEP行动回家休息！" : ""}
-
-${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY行动购买食物恢复饱腹。" : ""}
-
-如果没有特定目标位置，可以随机移动到附近位置。`;
+    const decisionPrompt = buildDecisionPrompt(this, {
+      memoryContext,
+      survivalContext,
+      worldState,
+      nearbyAgentsDesc: this.getNearbyDescription(),
+      locations,
+      nearbyBuildings,
+      canBuyFood,
+      isNight,
+    });
 
     try {
       console.log(`[${this.name}] 正在请求LLM决策...`);
       const response = await this.llm.chat([
-        {
-          role: "system",
-          content: `你是${this.name}，一个生活在AI生态小镇的居民。请根据你的性格和记忆做出自然的行为决定。只输出JSON，不要其他解释。`,
-        },
-        { role: "user", content: prompt },
+        { role: "system", content: buildSystemPrompt(this) },
+        { role: "user", content: decisionPrompt },
       ]);
       console.log(`[${this.name}] LLM响应:`, response);
 
@@ -729,9 +689,6 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
     this.moveInterval = setInterval(() => {
       const stillMoving = this.moveOneStep();
 
-      // 通知监听者位置更新（用于渲染）
-      this.notifyMoveListeners();
-
       if (!stillMoving) {
         // 到达目标，停止移动定时器
         this.stopMoving();
@@ -753,22 +710,6 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
     this.currentPath = [];
     this.currentPathIndex = 0;
     this.status = "idle";
-  }
-
-  /**
-   * 添加移动监听（用于 UI 渲染）
-   */
-  onMove(callback) {
-    this.moveListeners.push(callback);
-  }
-
-  /**
-   * 通知移动监听
-   */
-  notifyMoveListeners() {
-    for (const listener of this.moveListeners) {
-      listener(this.position);
-    }
   }
 
   /**
@@ -983,13 +924,14 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
     const query = `关于${otherAgent.name}`;
     const myMemories = await this.memory.retrieveMemories(query, 5);
 
-    // 简单的对话生成
-    const prompt = `${this.name}对${otherAgent.name}说:`;
-
+    // 对话生成
     try {
       const response = await this.llm.chat([
-        { role: "system", content: `你是${this.name}，${this.config.traits}` },
-        { role: "user", content: prompt },
+        {
+          role: "system",
+          content: buildConversationPrompt(this, otherAgent.name),
+        },
+        { role: "user", content: `${this.name}对${otherAgent.name}说:` },
       ]);
 
       // 记录对话
@@ -1014,11 +956,11 @@ ${canBuyFood ? "你现在就在有食物的地点附近，可以直接使用BUY�
    * 创建每日计划
    */
   async createDailyPlan() {
-    const prompt = `作为${this.name}（${this.config.traits}），你今天的计划是什么？请列出3-5个主要活动。`;
+    const prompt = buildPlanPrompt(this);
 
     try {
       const plan = await this.llm.chat([
-        { role: "system", content: `你是${this.name}` },
+        { role: "system", content: buildSystemPrompt(this) },
         { role: "user", content: prompt },
       ]);
 

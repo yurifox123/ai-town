@@ -82,12 +82,6 @@ class ImageLoader {
       }
     }
 
-    // 建筑图片
-    for (const key of Object.keys(ASSET_CONFIG.buildings)) {
-      const building = ASSET_CONFIG.buildings[key];
-      if (building?.sprite) imagePaths.push(building.sprite);
-    }
-
     // 地图背景图片
     if (ASSET_CONFIG.map?.image) {
       imagePaths.push(ASSET_CONFIG.map.image);
@@ -150,6 +144,4 @@ class ImageLoader {
 }
 
 // 导出单例
-export const imageLoader = new ImageLoader();
-
-export default imageLoader;
+export default new ImageLoader();

@@ -9,6 +9,11 @@ CREATE TABLE IF NOT EXISTS agents (
   traits           TEXT NOT NULL,
   background       TEXT NOT NULL,
   goals            TEXT NOT NULL DEFAULT '[]',
+  occupation       TEXT NOT NULL DEFAULT '普通居民',
+  personality      TEXT NOT NULL DEFAULT '{"social":0.5,"curiosity":0.5,"energy":0.5,"caution":0.5}',
+  preferences      TEXT NOT NULL DEFAULT '{"places":[],"activities":[]}',
+  rules            TEXT NOT NULL DEFAULT '[]',
+  routine          TEXT NOT NULL DEFAULT '{"wakeTime":7,"sleepTime":23}',
   position_x       INTEGER NOT NULL DEFAULT 0,
   position_y       INTEGER NOT NULL DEFAULT 0,
   status           TEXT NOT NULL DEFAULT 'idle',
@@ -114,13 +119,45 @@ CREATE INDEX IF NOT EXISTS idx_dialogues_agents ON dialogues(agent_id_1, agent_i
 
 db.exec(schemaSql);
 
+// Migration: add personality columns if they don't exist
+const columns = db.prepare("PRAGMA table_info(agents)").all();
+const existingColumns = columns.map(
+  (c: Record<string, unknown>) => c.name as string,
+);
+const migrationColumns = [
+  "occupation",
+  "personality",
+  "preferences",
+  "rules",
+  "routine",
+];
+for (const col of migrationColumns) {
+  if (!existingColumns.includes(col)) {
+    const defaults: Record<string, string> = {
+      occupation: "'普通居民'",
+      personality:
+        '\'{"social":0.5,"curiosity":0.5,"energy":0.5,"caution":0.5}\'',
+      preferences: '\'{"places":[],"activities":[]}\'',
+      rules: "'[]'",
+      routine: '\'{"wakeTime":7,"sleepTime":23}\'',
+    };
+    db.exec(
+      `ALTER TABLE agents ADD COLUMN ${col} TEXT NOT NULL DEFAULT ${defaults[col]}`,
+    );
+  }
+}
+
 // Seed simulation_state if not exists
-const existing = db.prepare("SELECT id FROM simulation_state WHERE id = 1").get();
+const existing = db
+  .prepare("SELECT id FROM simulation_state WHERE id = 1")
+  .get();
 if (!existing) {
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO simulation_state (id, tick_count, game_time, town_health_current, town_health_max, time_scale, tile_size, image_width, image_height)
     VALUES (1, 0, datetime('now'), 100, 100, 60, 48, 1536, 1024)
-  `).run();
+  `,
+  ).run();
 }
 
 console.log("✅ Database schema initialized");

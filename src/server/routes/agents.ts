@@ -5,16 +5,20 @@ import { readJsonBody } from "../middleware/json";
 export async function handleAgents(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  id?: string
+  id?: string,
 ) {
   if (!id && req.method === "GET") {
-    const agents = db.prepare(`
-      SELECT id, name, age, traits, position_x, position_y, status,
+    const agents = db
+      .prepare(
+        `
+      SELECT id, name, age, traits, occupation, position_x, position_y, status,
              health_current, health_max, green_points, fullness,
              facing_direction, created_at
       FROM agents
       ORDER BY created_at
-    `).all();
+    `,
+      )
+      .all();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(agents));
     return;
@@ -22,13 +26,30 @@ export async function handleAgents(
 
   if (!id && req.method === "POST") {
     try {
-      const body = await readJsonBody(req) as Record<string, unknown>;
+      const body = (await readJsonBody(req)) as Record<string, unknown>;
       const {
-        id: agentId, name, age, traits, background, goals = [],
-        position_x = 0, position_y = 0, status = "idle",
-        current_action = null, health_current = 100, health_max = 100,
-        green_points = 10, fullness = 80, facing_direction = "down",
-        last_sleep_time = 0, no_sleep_days = 0,
+        id: agentId,
+        name,
+        age,
+        traits,
+        background,
+        goals = [],
+        position_x = 0,
+        position_y = 0,
+        status = "idle",
+        current_action = null,
+        health_current = 100,
+        health_max = 100,
+        green_points = 10,
+        fullness = 80,
+        facing_direction = "down",
+        last_sleep_time = 0,
+        no_sleep_days = 0,
+        occupation = "普通居民",
+        personality = '{"social":0.5,"curiosity":0.5,"energy":0.5,"caution":0.5}',
+        preferences = '{"places":[],"activities":[]}',
+        rules = "[]",
+        routine = '{"wakeTime":7,"sleepTime":23}',
       } = body;
 
       if (!agentId || !name) {
@@ -37,20 +58,41 @@ export async function handleAgents(
         return;
       }
 
-      db.prepare(`
-        INSERT INTO agents (id, name, age, traits, background, goals, position_x, position_y,
+      db.prepare(
+        `
+        INSERT INTO agents (id, name, age, traits, background, goals, occupation, personality, preferences, rules, routine, position_x, position_y,
                            status, current_action, health_current, health_max, green_points,
                            fullness, facing_direction, last_sleep_time, no_sleep_days)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        agentId, name, age ?? 20, traits ?? "", background ?? "",
-        JSON.stringify(goals), position_x, position_y, status,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      ).run(
+        agentId,
+        name,
+        age ?? 20,
+        traits ?? "",
+        background ?? "",
+        JSON.stringify(goals),
+        occupation,
+        personality,
+        preferences,
+        rules,
+        routine,
+        position_x,
+        position_y,
+        status,
         current_action ? JSON.stringify(current_action) : null,
-        health_current, health_max, green_points, fullness,
-        facing_direction, last_sleep_time, no_sleep_days
+        health_current,
+        health_max,
+        green_points,
+        fullness,
+        facing_direction,
+        last_sleep_time,
+        no_sleep_days,
       );
 
-      const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+      const agent = db
+        .prepare("SELECT * FROM agents WHERE id = ?")
+        .get(agentId);
       res.writeHead(201, { "Content-Type": "application/json" });
       res.end(JSON.stringify(agent));
     } catch (e: unknown) {
@@ -74,7 +116,7 @@ export async function handleAgents(
 
   if (id && req.method === "PATCH") {
     try {
-      const body = await readJsonBody(req) as Record<string, unknown>;
+      const body = (await readJsonBody(req)) as Record<string, unknown>;
       const existing = db.prepare("SELECT id FROM agents WHERE id = ?").get(id);
       if (!existing) {
         res.writeHead(404, { "Content-Type": "application/json" });
@@ -83,20 +125,49 @@ export async function handleAgents(
       }
 
       const allowed = [
-        "position_x", "position_y", "status", "current_action",
-        "health_current", "health_max", "green_points", "fullness",
-        "facing_direction", "last_sleep_time", "no_sleep_days",
-        "current_action", "traits", "background", "goals",
+        "name",
+        "age",
+        "position_x",
+        "position_y",
+        "status",
+        "current_action",
+        "health_current",
+        "health_max",
+        "green_points",
+        "fullness",
+        "facing_direction",
+        "last_sleep_time",
+        "no_sleep_days",
+        "traits",
+        "background",
+        "goals",
+        "occupation",
+        "personality",
+        "preferences",
+        "rules",
+        "routine",
       ];
+      const jsonFields = new Set([
+        "current_action",
+        "goals",
+        "personality",
+        "preferences",
+        "rules",
+        "routine",
+      ]);
       const updates: string[] = [];
       const values: unknown[] = [];
       for (const key of allowed) {
         if (key in body) {
           updates.push(`${key} = ?`);
           values.push(
-            key === "current_action" || key === "goals"
-              ? (body[key] ? JSON.stringify(body[key]) : null)
-              : body[key]
+            jsonFields.has(key)
+              ? body[key]
+                ? typeof body[key] === "string"
+                  ? body[key]
+                  : JSON.stringify(body[key])
+                : null
+              : body[key],
           );
         }
       }
@@ -108,7 +179,9 @@ export async function handleAgents(
       updates.push("updated_at = datetime('now')");
       values.push(id);
 
-      db.prepare(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+      db.prepare(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`).run(
+        ...values,
+      );
       const updated = db.prepare("SELECT * FROM agents WHERE id = ?").get(id);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(updated));

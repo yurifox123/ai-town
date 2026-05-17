@@ -14,7 +14,7 @@ AI生态小镇 (AI Eco Town) is a multi-agent simulation system based on Stanfor
 # Start web server (default) - runs on port 3061
 npm start
 
-# Development with hot reload
+# Development with hot reload (uses tsx watch)
 npm run dev
 
 # Build TypeScript
@@ -28,12 +28,9 @@ npm run lint
 
 # Stop server (if running on port 3061)
 npm run stop
-
-# Database setup
-npm run db:setup
 ```
 
-Note: vitest uses default configuration (no `vitest.config.*` file exists).
+Note: vitest uses default configuration (no `vitest.config.*` file exists). The `data/` directory contains the SQLite database file (`ai-town.db`).
 
 ## Testing
 
@@ -41,7 +38,6 @@ There are no formal unit/integration tests. All testing is done via **ad-hoc Pla
 
 - `test-*.js` files (~15 scripts) launch the browser app, interact with it, and capture `*.png` screenshots for visual verification
 - Examples: `test-freehand.js`, `test-agent-move.js`, `test-pan.js`, `test-default-map.js`
-- `src/test.ts` is a legacy mock-mode test (excluded from TS compilation, not part of the active codebase)
 
 When modifying frontend code, write a Playwright script or reuse an existing one to verify the change visually.
 
@@ -51,34 +47,41 @@ When modifying frontend code, write a Playwright script or reuse an existing one
 
 The system has been refactored from a CLI-based simulator to a browser-based simulation:
 
-1. **Simple Server** (`src/server/simple-server.ts`) - HTTP server that:
-   - Proxies LLM requests to the configured provider (Anthropic-style headers)
-   - Serves static files from `public/`
-   - Handles embedding requests
-   - Auto-increments port if 3061 is in use
+1. **Server** (`src/server/`) - Express-based HTTP server with route modules:
+   - `index.ts` - Entry point, mounts middleware and routes
+   - `routes/llm.ts` - Proxies LLM requests to configured provider
+   - `routes/agents.ts` - Agent CRUD and actions
+   - `routes/memories.ts` - Memory retrieval and storage
+   - `routes/reflections.ts` - Reflection generation
+   - `routes/map.ts` - Map data and building management
+   - `routes/state.ts` - Simulation state persistence
+   - `middleware/json.ts` - JSON body parser
+   - `middleware/multipart.ts` - Multipart form handling
 
-2. **Browser-Based Simulation** (`public/js/`) - Frontend contains:
-   - `app.js` - Main simulation logic, UI, event handling (also contains its own canvas renderer)
-   - `agent.js` - `Agent` class: perception, decision-making, action execution
-   - `simulator.js` - `WorldSimulator` class: 2D grid simulation with tick-based timing
-   - `memory.js` - `MemorySystem` class: three-layer memory (observations, reflections, plans)
-   - `llm-client.js` - Communicates with backend `/api/llm/chat` endpoint
-   - `asset-config.js` - Sprite paths and display sizes
-   - `pathfinder.js` - A\* pathfinding with terrain collision
-   - `building-editor.js` - Map editing tools
-   - `image-loader.js` - Asset loading manager
+2. **Database** (`src/server/db/`) - SQLite via better-sqlite3:
+   - `connection.ts` - Database connection singleton
+   - `schema.ts` - Table definitions (agents, memories, embeddings, reflections, areas, simulation_state, dialogues)
 
-   **Module dependency graph** (ES modules, all imported by `app.js`):
+3. **Browser-Based Simulation** (`public/js/`) - Frontend organized by domain:
+   - `core/agent.js` - `Agent` class: perception, decision-making, action execution
+   - `core/simulator.js` - `WorldSimulator` class: 2D grid simulation with tick-based timing
+   - `core/memory.js` - `MemorySystem` class: three-layer memory (observations, reflections, plans)
+   - `core/pathfinder.js` - A\* pathfinding with terrain collision
+   - `app/app.js` - Main simulation logic, UI, event handling (canvas renderer)
+   - `app/llm-client.js` - Communicates with backend `/api/llm/chat` endpoint
+   - `assets/asset-config.js` - Sprite paths and display sizes
+   - `assets/image-loader.js` - Asset loading manager
+   - `editor/building-editor.js` - Map editing tools
+
+   **Module dependency graph** (ES modules, all imported by `app/app.js`):
 
    ```
-   app.js → simulator.js → agent.js → memory.js
-                                  → pathfinder.js
-                → llm-client.js
-                → image-loader.js
-                → asset-config.js
+   app/app.js → core/simulator.js → core/agent.js → core/memory.js
+                                            → core/pathfinder.js
+                 → app/llm-client.js
+                 → assets/image-loader.js
+                 → assets/asset-config.js
    ```
-
-   **Note:** `renderer.js` exists but is not imported by the active codebase — `app.js` contains its own rendering logic. It is legacy/unused.
 
 ### Movement System
 
@@ -182,7 +185,7 @@ Agent decisions follow a strict priority (highest to lowest):
 
 ## LLM Configuration
 
-The project currently uses **Kimi K2.5** via Alibaba Cloud DashScope. Configuration is in `src/server/simple-server.ts`:
+The project currently uses **Kimi K2.5** via Alibaba Cloud DashScope. Configuration is in `src/server/routes/llm.ts`:
 
 - Provider: `custom`
 - Model: `kimi-k2.5` (from `CUSTOM_MODEL` env var, defaults to this)
@@ -202,37 +205,50 @@ OPENAI_MODEL=gpt-4o-mini
 ## Project Structure
 
 ```
-src/                        # TypeScript source (legacy CLI + active server)
+src/
 ├── server/
-│   └── simple-server.ts    # HTTP server + LLM proxy (the only active TS code)
-├── types/
-│   └── index.ts            # TypeScript interfaces and enums
-├── data/
-│   └── agent-templates.ts  # Legacy agent templates
-└── ...                     # Legacy CLI code (deprecated, kept for reference)
+│   ├── index.ts            # Server entry point, mounts routes
+│   ├── db/
+│   │   ├── connection.ts   # SQLite connection singleton
+│   │   └── schema.ts       # Table definitions
+│   ├── routes/
+│   │   ├── llm.ts          # LLM proxy endpoints
+│   │   ├── agents.ts       # Agent CRUD
+│   │   ├── memories.ts     # Memory operations
+│   │   ├── reflections.ts  # Reflection generation
+│   │   ├── map.ts          # Map/building management
+│   │   └── state.ts        # Simulation state persistence
+│   └── middleware/
+│       ├── json.ts         # JSON body parser
+│       └── multipart.ts    # Multipart form handling
 
-public/                     # Static frontend files (primary simulation)
-├── index.html              # Main HTML
-├── styles.css              # Dark theme UI
+public/
+├── index.html
+├── styles.css
 ├── js/
-│   ├── app.js              # Main simulation logic, UI, event handling (76KB — largest file)
-│   ├── agent.js            # Agent class (perception, decisions, actions)
-│   ├── simulator.js        # WorldSimulator class (world state, tick loop)
-│   ├── memory.js           # MemorySystem class (storage, retrieval, reflection)
-│   ├── llm-client.js       # Frontend LLM client
-│   ├── pathfinder.js       # A* pathfinding with terrain collision
-│   ├── image-loader.js     # Asset loading manager
-│   ├── asset-config.js     # Sprite paths and display sizes
-│   ├── building-editor.js  # Map editor with terrain/building tools
-│   └── renderer.js         # LEGACY/UNUSED — app.js has its own renderer
+│   ├── core/               # Simulation logic
+│   │   ├── agent.js
+│   │   ├── simulator.js
+│   │   ├── memory.js
+│   │   └── pathfinder.js
+│   ├── app/                # UI and main entry
+│   │   ├── app.js          # Main entry, canvas renderer (~76KB)
+│   │   └── llm-client.js
+│   ├── assets/             # Asset management
+│   │   ├── asset-config.js
+│   │   ├── image-loader.js
+│   │   └── sprite-crop-tool.js
+│   ├── editor/             # Map editor
+│   │   └── building-editor.js
+│   └── tools/              # Dev tools
+│       └── anim-test.js
 └── assets/                 # Images and sprites
-    ├── characters/         # Agent sprites (48x48px)
-    ├── portraits/          # Agent portraits for UI
-    ├── buildings/          # Building sprites
-    ├── tiles/              # Ground tiles (grass, path, water, wall)
-    └── ui/                 # UI elements
 
-ARCHITECTURE.md             # Detailed architecture documentation
+data/                       # Runtime data (gitignored)
+├── ai-town.db              # SQLite database
+└── saves/                  # Save files
+
+ARCHITECTURE.md
 ```
 
 ## Environment Variables
@@ -277,15 +293,13 @@ The server exposes these endpoints:
 
 - `POST /api/llm/chat` - Proxy LLM requests (messages, options)
 - `POST /api/llm/embedding` - Get text embeddings
+- `GET/POST /api/agents` - Agent CRUD
+- `GET/POST /api/memories` - Memory operations
+- `POST /api/reflections` - Reflection generation
+- `GET/PUT /api/map` - Map and building data
+- `GET/POST /api/state` - Simulation state persistence
 - `POST /api/stop` - Shut down the server
 
 ## TypeScript Configuration
 
 Uses `moduleResolution: "bundler"` with path mapping `@/*` → `src/*`. The `dist/` directory contains compiled output.
-
-## Legacy CLI Mode
-
-The original CLI mode is deprecated. The web-based simulation is now the primary interface. Legacy scripts exist for reference but may not be maintained:
-
-- `npm run legacy:cli` - Original CLI entry point
-- `npm run legacy:web` - Original WebSocket-based server

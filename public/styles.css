@@ -560,6 +560,33 @@ body {
   border-color: var(--border-color);
 }
 
+.agent-delete-btn {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.agent-item:hover .agent-delete-btn {
+  opacity: 1;
+}
+
+.agent-delete-btn:hover {
+  background: #e74c3c;
+  color: #fff;
+}
+
 .agent-avatar {
   position: relative;
   width: 40px;
@@ -1217,6 +1244,110 @@ body {
   display: flex;
   gap: 0.75rem;
   margin-top: 1.5rem;
+}
+
+/* Range slider */
+.form-group input[type="range"] {
+  width: calc(100% - 4rem);
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+
+.form-group input[type="range"] + span {
+  display: inline-block;
+  min-width: 2.5rem;
+  text-align: right;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+/* Slider group for add agent form */
+.slider-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.slider-group label:first-child {
+  margin-top: 0;
+}
+
+.slider-group input[type="range"] {
+  flex: 1;
+}
+
+.slider-group span {
+  min-width: 3rem;
+  text-align: right;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.sprite-select-preview {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.sprite-select-preview img {
+  max-height: 64px;
+  image-rendering: pixelated;
+}
+
+/* Form hints */
+.form-hint {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+/* Modal header actions */
+.modal-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Edit mode layout */
+#agent-edit-mode {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+#agent-view-mode .agent-info-grid {
+  margin-bottom: 1rem;
+}
+
+.agent-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.info-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.info-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 5rem;
+}
+
+.info-value {
+  color: var(--text-color);
 }
 
 /* 空状态 */
