@@ -86,6 +86,9 @@ class ImageLoader {
     if (ASSET_CONFIG.map?.image) {
       imagePaths.push(ASSET_CONFIG.map.image);
     }
+    if (Array.isArray(ASSET_CONFIG.map?.pollutionStages)) {
+      imagePaths.push(...ASSET_CONFIG.map.pollutionStages);
+    }
 
     this.total = imagePaths.length;
     console.log(`开始加载 ${this.total} 张图片...`);

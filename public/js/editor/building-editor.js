@@ -4,6 +4,7 @@
  */
 
 import imageLoader from '../assets/image-loader.js';
+import { appendTextElement, clearElement } from '../app/dom-utils.js';
 
 // ========== 配置 ==========
 const CONFIG = {
@@ -398,12 +399,14 @@ function handleMouseMove(e) {
 
   if (hoveredBuilding) {
     elements.tooltip.classList.remove('hidden');
-    elements.tooltip.innerHTML = `
-      <strong>${hoveredBuilding.name}</strong><br>
-      ID: ${hoveredBuilding.id}<br>
-      尺寸: ${hoveredBuilding.width}×${hoveredBuilding.height}<br>
-      ${hoveredBuilding.obstacle ? '🔒 障碍物' : '✓ 可通过'}
-    `;
+    clearElement(elements.tooltip);
+    appendTextElement(elements.tooltip, 'strong', hoveredBuilding.name);
+    elements.tooltip.appendChild(document.createElement('br'));
+    appendTooltipLine(elements.tooltip, `ID: ${hoveredBuilding.id}`);
+    appendTooltipLine(elements.tooltip, `尺寸: ${hoveredBuilding.width}×${hoveredBuilding.height}`);
+    elements.tooltip.appendChild(document.createTextNode(
+      hoveredBuilding.obstacle ? '🔒 障碍物' : '✓ 可通过',
+    ));
     elements.tooltip.style.left = (e.clientX + 10) + 'px';
     elements.tooltip.style.top = (e.clientY + 10) + 'px';
   } else {
@@ -775,32 +778,53 @@ function applyTransform() {
 }
 
 // ========== UI 渲染 ==========
+function createFallbackBuildingIcon(id) {
+  const firstChar = String(id ?? '').trim().charAt(0).toUpperCase();
+  const label = /^[A-Z0-9]$/.test(firstChar) ? firstChar : '?';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect fill="#667eea" width="32" height="32"/><text x="16" y="20" text-anchor="middle" fill="white" font-size="12">${label}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function appendTooltipLine(container, text) {
+  container.appendChild(document.createTextNode(text));
+  container.appendChild(document.createElement('br'));
+}
+
 function renderBuildingList() {
   if (!elements.buildingList) return;
+  clearElement(elements.buildingList);
 
   if (state.buildings.length === 0) {
-    elements.buildingList.innerHTML = '<div class="empty-state">暂无建筑，点击新建添加</div>';
+    appendTextElement(elements.buildingList, 'div', '暂无建筑，点击新建添加', 'empty-state');
     return;
   }
 
-  elements.buildingList.innerHTML = state.buildings.map(building => `
-    <div class="building-item ${state.selectedBuilding?.id === building.id ? 'selected' : ''}"
-         data-id="${building.id}">
-      <div class="building-item-${building.obstacle ? 'obstacle' : 'passable'}"></div>
-      <img class="building-item-icon" src="${building.image || 'data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><rect fill=\"%23667eea\" width=\"32\" height=\"32\"/><text x=\"16\" y=\"20\" text-anchor=\"middle\" fill=\"white\" font-size=\"12\">${building.id[0].toUpperCase()}</text></svg>'}" alt="">
-      <div class="building-item-info">
-        <div class="building-item-name">${building.name}</div>
-        <div class="building-item-id">${building.id}</div>
-        <div class="building-item-size">${building.width}×${building.height}</div>
-      </div>
-    </div>
-  `).join('');
+  for (const building of state.buildings) {
+    const item = document.createElement('div');
+    item.className = 'building-item';
+    if (state.selectedBuilding?.id === building.id) {
+      item.classList.add('selected');
+    }
+    item.dataset.id = String(building.id ?? '');
 
-  // 添加点击事件
-  elements.buildingList.querySelectorAll('.building-item').forEach(item => {
+    const status = document.createElement('div');
+    status.className = `building-item-${building.obstacle ? 'obstacle' : 'passable'}`;
+    item.appendChild(status);
+
+    const image = document.createElement('img');
+    image.className = 'building-item-icon';
+    image.src = building.image || createFallbackBuildingIcon(building.id);
+    image.alt = '';
+    item.appendChild(image);
+
+    const info = document.createElement('div');
+    info.className = 'building-item-info';
+    appendTextElement(info, 'div', building.name, 'building-item-name');
+    appendTextElement(info, 'div', building.id, 'building-item-id');
+    appendTextElement(info, 'div', `${building.width}×${building.height}`, 'building-item-size');
+    item.appendChild(info);
+
     item.addEventListener('click', () => {
-      const id = item.dataset.id;
-      const building = state.buildings.find(b => b.id === id);
       if (building) {
         state.selectedBuilding = building;
         renderBuildingList();
@@ -809,58 +833,66 @@ function renderBuildingList() {
     });
 
     item.addEventListener('dblclick', () => {
-      const id = item.dataset.id;
-      const building = state.buildings.find(b => b.id === id);
       showEditBuildingModal(building);
     });
-  });
+    elements.buildingList.appendChild(item);
+  }
+}
+
+function appendPropertyGroup(label, value, renderValue) {
+  const group = document.createElement('div');
+  group.className = 'property-group';
+  appendTextElement(group, 'label', label);
+
+  if (renderValue) {
+    const valueEl = document.createElement('div');
+    valueEl.className = 'property-value';
+    renderValue(valueEl);
+    group.appendChild(valueEl);
+  } else {
+    appendTextElement(group, 'div', value, 'property-value');
+  }
+
+  elements.propertiesContent.appendChild(group);
+  return group;
 }
 
 function renderProperties() {
   if (!elements.propertiesContent) return;
+  clearElement(elements.propertiesContent);
 
   if (!state.selectedBuilding) {
-    elements.propertiesContent.innerHTML = '<div class="empty-state">在画布上选择建筑进行编辑</div>';
+    appendTextElement(elements.propertiesContent, 'div', '在画布上选择建筑进行编辑', 'empty-state');
     return;
   }
 
   const b = state.selectedBuilding;
-  elements.propertiesContent.innerHTML = `
-    <div class="property-group">
-      <label>ID</label>
-      <div class="property-value">${b.id}</div>
-    </div>
-    <div class="property-group">
-      <label>名称</label>
-      <div class="property-value">${b.name}</div>
-    </div>
-    <div class="property-group">
-      <label>位置</label>
-      <div class="property-value">X: ${b.x}, Y: ${b.y}</div>
-    </div>
-    <div class="property-group">
-      <label>尺寸</label>
-      <div class="property-value">${b.width} × ${b.height} 格</div>
-    </div>
-    <div class="property-group">
-      <label>障碍物</label>
-      <div class="property-value">
-        <span class="color-indicator ${b.obstacle ? 'color-obstacle' : 'color-passable'}"></span>
-        ${b.obstacle ? '是（人物无法通过）' : '否（人物可以通过）'}
-      </div>
-    </div>
-    ${b.description ? `
-    <div class="property-group">
-      <label>描述</label>
-      <div class="property-value">${b.description}</div>
-    </div>
-    ` : ''}
-    <div class="property-group">
-      <button class="btn btn-block" id="btn-edit-selected">✏️ 编辑详情</button>
-    </div>
-  `;
+  appendPropertyGroup('ID', b.id);
+  appendPropertyGroup('名称', b.name);
+  appendPropertyGroup('位置', `X: ${b.x}, Y: ${b.y}`);
+  appendPropertyGroup('尺寸', `${b.width} × ${b.height} 格`);
+  appendPropertyGroup('障碍物', null, (valueEl) => {
+    const indicator = document.createElement('span');
+    indicator.className = `color-indicator ${b.obstacle ? 'color-obstacle' : 'color-passable'}`;
+    valueEl.appendChild(indicator);
+    valueEl.appendChild(document.createTextNode(
+      b.obstacle ? '是（人物无法通过）' : '否（人物可以通过）',
+    ));
+  });
+  if (b.description) {
+    appendPropertyGroup('描述', b.description);
+  }
 
-  document.getElementById('btn-edit-selected')?.addEventListener('click', () => {
+  const actionGroup = document.createElement('div');
+  actionGroup.className = 'property-group';
+  const editButton = document.createElement('button');
+  editButton.className = 'btn btn-block';
+  editButton.id = 'btn-edit-selected';
+  editButton.textContent = '✏️ 编辑详情';
+  actionGroup.appendChild(editButton);
+  elements.propertiesContent.appendChild(actionGroup);
+
+  editButton.addEventListener('click', () => {
     showEditBuildingModal(state.selectedBuilding);
   });
 }

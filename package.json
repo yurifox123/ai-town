@@ -8,8 +8,8 @@
     "start": "tsx src/server/index.ts",
     "stop": "npx kill-port 3061",
     "build": "tsc",
-    "test": "vitest",
-    "lint": "eslint src --ext .ts"
+    "test": "vitest --run",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",

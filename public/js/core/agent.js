@@ -4,21 +4,24 @@
  */
 import MemorySystem from "./memory.js";
 import PathFinder from "./pathfinder.js";
+import GAME_CONFIG from "./game-config.js";
 import {
   normalizeTemplate,
   buildSystemPrompt,
   buildDecisionPrompt,
-  buildConversationPrompt,
   buildPlanPrompt,
+  buildMeetingPrompt,
 } from "./personality.js";
 
 class Agent {
   constructor(config, llmClient) {
     this.id = config.id;
     this.name = config.name;
-    this.config = config;
+    this.config = { ...config };
+    delete this.config.cycleGuidance;
     this.memory = new MemorySystem(config.id, llmClient);
     this.llm = llmClient;
+    this.cycleGuidance = config.cycleGuidance || null;
 
     // 状态
     this.position = { x: 0, y: 0 };
@@ -28,31 +31,51 @@ class Agent {
     this.currentPathIndex = 0; // 当前走到路径的哪一步
     this.movesSinceLastDecision = 0;
     this.facingDirection = "down";
-    this.decisionInterval = 50; // 每50格做一次新决策
+    this.decisionInterval = GAME_CONFIG.movement.decisionInterval;
     this.moveInterval = null; // 移动定时器
-    this.moveSpeed = 200; // 每 0.2 秒 (200ms) 走一格
+    this.moveSpeed = GAME_CONFIG.movement.moveSpeed;
 
     this.currentPlan = null;
     this.currentAction = null;
     this.observations = [];
     this.status = "idle";
+    this.workTarget = null; // 工作承诺：到达前不改变目标
+    this.workEndTime = null; // 工作结束时间戳
+    this._workStartTime = null; // 工作开始时间（gameTime）
+    this.cleanupOverrideUntil = null;
+    this.cleanupRetargetAt = null;
+    this.lastFeedback = null; // 上次行动反馈
+    this.playerGuidance = config.playerGuidance || "";
+    this.customPrompt = config.customPrompt || config.custom_prompt || "";
+    this.config.customPrompt = this.customPrompt;
+    this.conversationLockUntil = null;
+    this.nextDecisionAt = config.nextDecisionAt
+      ? new Date(config.nextDecisionAt)
+      : null;
 
     // 社交状态
     this.nearbyAgents = new Set();
     this.lastConversation = new Map();
 
     // 生存属性
+    const maxHealth = config.healthMax ?? GAME_CONFIG.survival.healthMax ?? 100;
     this.health = {
-      current: config.healthMax || 100, // 当前健康值 (0-100)
-      max: config.healthMax || 100, // 健康值上限
+      current: maxHealth,
+      max: maxHealth,
     };
-    this.greenPoints = config.greenPoints || 10; // 绿色积分，初始10，范围-10000~10000000
-    this.fullness = config.fullness || 80; // 饱腹值 (0-100)
+    this.greenPoints = config.greenPoints ?? GAME_CONFIG.initialGreenPoints;
+    this.fullness = config.fullness ?? GAME_CONFIG.initialFullness;
     this.lastSurvivalUpdate = Date.now(); // 上次更新生存属性的时间戳
 
-    // 睡眠追踪（不睡觉惩罚机制）
-    this.lastSleepTime = Date.now(); // 上次睡觉时间戳
+    // 睡眠追踪（按游戏内清醒时长累计，避免受现实时间影响）
+    this.awakeHoursSinceSleep = 0;
     this.consecutiveNoSleepDays = 0; // 连续不睡觉天数
+
+    // 背包系统
+    this.backpack = []; // [{name, quantity, fullness, health}]
+    this.decisionHistory = Array.isArray(config.decisionHistory)
+      ? config.decisionHistory.slice(-10)
+      : [];
 
     // 记忆类型
     this.MemoryType = {
@@ -80,6 +103,8 @@ class Agent {
     this.preferences = config.preferences;
     this.routine = config.routine;
     this.occupation = config.occupation;
+    this.customPrompt = config.customPrompt || config.custom_prompt || "";
+    this.config.customPrompt = this.customPrompt;
 
     // 世界引用（用于地形碰撞检测）
     this.world = null;
@@ -98,10 +123,18 @@ class Agent {
     );
 
     await this.memory.addMemory(
-      `我的性格：${cfg.traits}。行为规则：${cfg.rules.join("；")}`,
+      `我的性格：${cfg.traits}。行动倾向：${cfg.rules.join("；")}`,
       this.MemoryType.THOUGHT,
       9,
     );
+
+    if (cfg.customPrompt) {
+      await this.memory.addMemory(
+        `我的角色认知与目的：${cfg.customPrompt}`,
+        this.MemoryType.THOUGHT,
+        10,
+      );
+    }
 
     for (const goal of cfg.goals) {
       await this.memory.addMemory(
@@ -122,16 +155,28 @@ class Agent {
     for (const obs of observations) {
       this.observations.push(obs);
 
-      // 记录到记忆
       let importance = 5;
-      if (obs.type === "agent") importance = 7;
+      if (obs.type === "agent") importance = 3;
+      if (obs.type === "area" || obs.type === "time") importance = 2;
       if (obs.type === "event") importance = 8;
+      if (obs.importance !== undefined) {
+        importance = obs.importance;
+      }
+
+      const metadata = {
+        position: obs.position,
+        type: obs.type,
+        lowSignal: Boolean(obs.lowSignal),
+      };
+      if (obs.targetId) metadata.targetId = obs.targetId;
+      if (obs.distance !== undefined) metadata.distance = obs.distance;
+      if (obs.signalCategory) metadata.signalCategory = obs.signalCategory;
 
       await this.memory.addMemory(
         `观察到: ${obs.description}`,
         this.MemoryType.OBSERVATION,
         importance,
-        { position: obs.position, type: obs.type },
+        metadata,
       );
     }
   }
@@ -171,6 +216,13 @@ class Agent {
       }
       return null;
     };
+    const findAreaAt = (x, y) => {
+      for (const area of areas) {
+        if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
+        if (area.cells.some((c) => c.x === x && c.y === y)) return area;
+      }
+      return null;
+    };
     for (const area of areas) {
       if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
       // 计算区域中心位置
@@ -197,26 +249,29 @@ class Agent {
     const memoryContext = relevantMemories
       .map((r) => r.memory.content)
       .join("\n");
+    const cycleGuidance = this.cycleGuidance || "";
+    const playerGuidance = this.playerGuidance || "";
 
     // 生存属性上下文
+    const d = GAME_CONFIG.decision;
     let survivalContext = "";
-    if (this.health.current < 30) {
+    if (this.health.current < d.healthCritical) {
       survivalContext += `【紧急】健康值极低(${this.health.current}/${this.health.max})，你需要立即休息恢复！\n`;
-    } else if (this.health.current < 50) {
+    } else if (this.health.current < d.healthWarning) {
       survivalContext += `【警告】健康值较低(${this.health.current}/${this.health.max})，建议休息。\n`;
     }
 
     // 判断食物价格（最便宜的食物）
-    const cheapestFoodPrice = 5; // 咖啡最便宜5积分
+    const cheapestFoodPrice = GAME_CONFIG.survival.cheapestFoodPrice;
     const canAffordFood = this.greenPoints >= cheapestFoodPrice;
 
-    if (this.fullness < 20) {
+    if (this.fullness < d.fullnessCritical) {
       if (canAffordFood) {
         survivalContext += `【紧急】极度饥饿(${this.fullness}/100)，你必须立即寻找食物！优先前往咖啡馆或便利店。\n`;
       } else {
         survivalContext += `【紧急】极度饥饿(${this.fullness}/100)且没有钱(只有${this.greenPoints}积分)，你必须先去咖啡馆或便利店工作赚钱，然后再买食物！\n`;
       }
-    } else if (this.fullness < 40) {
+    } else if (this.fullness < d.fullnessWarning) {
       if (canAffordFood) {
         survivalContext += `【警告】很饿(${this.fullness}/100)，建议找点东西吃。\n`;
       } else {
@@ -228,24 +283,40 @@ class Agent {
       survivalContext += `【警告】积分为负(${this.greenPoints})，急需工作赚钱！可工作地点: ${workLocations.join(", ") || "咖啡馆、便利店"}\n`;
     } else if (this.greenPoints < cheapestFoodPrice) {
       survivalContext += `【警告】积分太少(${this.greenPoints})，连最便宜的食物都买不起，必须先去工作赚钱！可工作地点: ${workLocations.join(", ") || "咖啡馆、便利店"}\n`;
-    } else if (this.greenPoints < 30) {
+    } else if (this.greenPoints < d.greenPointsLow) {
       survivalContext += `【提示】积分较少(${this.greenPoints})，可能需要工作。\n`;
     }
 
     // 时间提示
     const hour = worldState.time.getHours();
-    const isNight = hour >= 22 || hour < 6;
+    const t = GAME_CONFIG.time;
+    const isNight = hour >= t.nightStart || hour < t.nightEnd;
     if (isNight) {
       survivalContext += `【深夜】现在${hour}点，夜深了，你应该回家睡觉休息！在家睡觉可以恢复健康。\n`;
-    } else if (hour >= 20) {
+    } else if (hour >= t.eveningStart) {
       survivalContext += `【晚间】现在${hour}点，天色已晚，如果累了可以准备回家休息。\n`;
     }
 
     // 不睡觉惩罚警告
-    if (this.consecutiveNoSleepDays >= 2) {
+    if (this.consecutiveNoSleepDays >= d.noSleepWarningDays) {
       survivalContext += `【严重警告】你已经连续${this.consecutiveNoSleepDays}天没有睡觉了！不睡觉会严重损害健康：1天-10健康，2天-50健康，3天健康归零！你必须立即去睡觉！\n`;
     } else if (this.consecutiveNoSleepDays >= 1) {
       survivalContext += `【警告】你已经${this.consecutiveNoSleepDays}天没有睡觉了，健康值会持续下降。请尽快回家休息。\n`;
+    }
+
+    // 污染警告（高优先级）
+    const pollution = worldState.pollution ?? GAME_CONFIG.initialPollution;
+    if (pollution >= GAME_CONFIG.pollution.gameOverThreshold) {
+      survivalContext += `【致命】污染已达${pollution}/100，小镇即将毁灭！所有人必须立刻去许愿池清理污染！这是最紧急的任务！\n`;
+    } else if (pollution >= GAME_CONFIG.pollution.warningCritical) {
+      survivalContext += `【危急】污染高达${pollution}/100，小镇濒临毁灭！请立即前往许愿池清理污染！每小时污染-0.52，不清理就完了！\n`;
+    } else if (pollution >= GAME_CONFIG.pollution.warningHigh) {
+      survivalContext += `【警告】污染${pollution}/100，小镇环境恶化！请考虑去许愿池清理污染（WORK许愿池，每小时-0.52）。\n`;
+    } else if (
+      pollution > GAME_CONFIG.pollution.goodEndingThreshold &&
+      pollution <= GAME_CONFIG.pollution.finishCleanupThreshold
+    ) {
+      survivalContext += `【收尾】污染只剩${pollution}/100，我们加加油。去许愿池继续净化，就可能直接结束危机，别在最后一点时分散去做次要事务。\n`;
     }
 
     // 附近建筑提示
@@ -269,7 +340,10 @@ class Agent {
       const cy = Math.round(sumY / area.cells.length);
       const distance =
         Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
-      if (distance <= 5 && area.services.length > 0) {
+      if (
+        distance <= GAME_CONFIG.movement.observationRange &&
+        area.services.length > 0
+      ) {
         const foodServices = area.services.filter((s) => s.fullness > 0);
         const services = area.services
           .map(
@@ -283,8 +357,25 @@ class Agent {
       }
     }
 
+    const agentStatsContext = worldState.agents
+      ? Array.from(worldState.agents.values())
+          .map((agentState) => {
+            const actionDesc =
+              agentState.currentAction?.description ||
+              agentState.currentAction?.type ||
+              "无";
+            const healthCurrent =
+              agentState.health?.current ?? agentState.health ?? "?";
+            const healthMax = agentState.health?.max ?? 100;
+            return `${agentState.name}: 状态=${agentState.status}, 位置=(${agentState.position?.x ?? "?"},${agentState.position?.y ?? "?"}), 健康=${Math.round(healthCurrent)}/${healthMax}, 饱腹=${Math.round(agentState.fullness ?? 0)}/100, 积分=${Math.round(agentState.greenPoints ?? 0)}, 当前行动=${actionDesc}`;
+          })
+          .join("\n")
+      : "";
+
     const decisionPrompt = buildDecisionPrompt(this, {
       memoryContext,
+      cycleGuidance,
+      playerGuidance,
       survivalContext,
       worldState,
       nearbyAgentsDesc: this.getNearbyDescription(),
@@ -292,6 +383,7 @@ class Agent {
       nearbyBuildings,
       canBuyFood,
       isNight,
+      agentStatsContext,
     });
 
     try {
@@ -299,7 +391,11 @@ class Agent {
       const response = await this.llm.chat([
         { role: "system", content: buildSystemPrompt(this) },
         { role: "user", content: decisionPrompt },
-      ]);
+      ], {
+        timeout: GAME_CONFIG.llm?.requestTimeoutMs ?? 10000,
+        overallTimeout: GAME_CONFIG.llm?.decisionTimeoutMs ?? 12000,
+        maxRetries: 5,
+      });
       console.log(`[${this.name}] LLM响应:`, response);
 
       // 解析JSON响应
@@ -319,7 +415,7 @@ class Agent {
       }
 
       // 根据决策类型构建行动
-      const actionType = decision.action?.toUpperCase() || "WAIT";
+      let actionType = decision.action?.toUpperCase() || "WAIT";
 
       if (
         actionType === "MOVE" &&
@@ -349,56 +445,307 @@ class Agent {
           timestamp: new Date(),
         };
       } else if (actionType === "WORK") {
-        // 如果LLM指定了目标位置且不在当前位置，先移动过去
-        if (decision.targetX !== undefined && decision.targetY !== undefined) {
-          const dx = Math.abs(decision.targetX - this.position.x);
-          const dy = Math.abs(decision.targetY - this.position.y);
-          if (dx + dy > 1) {
-            const areaCell = pickRandomAreaCell(
-              decision.targetX,
-              decision.targetY,
-            );
-            const target = areaCell || {
-              x: decision.targetX,
-              y: decision.targetY,
-            };
+        const workBuildingNames = ["实验室", "工厂", "仓库", "田地", "图书馆"];
+        const cleanupBuildings = ["许愿池"];
+        const currentArea = worldState.getAreaNameAt
+          ? worldState.getAreaNameAt(this.position.x, this.position.y)
+          : null;
+        // 判断是否为清理类建筑（无收入）
+        const isCleanup = currentArea && cleanupBuildings.includes(currentArea);
+        const effectiveHourlyRate = isCleanup
+          ? 0
+          : decision.hourlyRate || GAME_CONFIG.decision.defaultHourlyRate;
+
+        // 从位置找建筑的辅助函数
+        const findAreaAt = (x, y) => {
+          for (const area of areas) {
+            if (area.isBlocked || !area.cells || area.cells.length === 0)
+              continue;
+            if (area.cells.some((c) => c.x === x && c.y === y)) return area;
+          }
+          return null;
+        };
+
+        const allWorkBuildings = [...workBuildingNames, ...cleanupBuildings];
+        const cleanupMentionedInDescription =
+          typeof decision.description === "string" &&
+          cleanupBuildings.some((name) => decision.description.includes(name));
+        const findNearestWorkArea = (candidateNames) => {
+          let bestArea = null;
+          let bestDist = Infinity;
+          for (const area of areas) {
+            if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
+            if (!candidateNames.includes(area.name)) continue;
+            let sumX = 0,
+              sumY = 0;
+            for (const c of area.cells) {
+              sumX += c.x;
+              sumY += c.y;
+            }
+            const cx = Math.round(sumX / area.cells.length);
+            const cy = Math.round(sumY / area.cells.length);
+            const dist =
+              Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestArea = area;
+            }
+          }
+          return bestArea;
+        };
+        const findNamedWorkArea = (candidateName) => {
+          if (!candidateName) return null;
+          let bestArea = null;
+          let bestDist = Infinity;
+          for (const area of areas) {
+            if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
+            if (area.name !== candidateName) continue;
+            let sumX = 0;
+            let sumY = 0;
+            for (const c of area.cells) {
+              sumX += c.x;
+              sumY += c.y;
+            }
+            const cx = Math.round(sumX / area.cells.length);
+            const cy = Math.round(sumY / area.cells.length);
+            const dist =
+              Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestArea = area;
+            }
+          }
+          return bestArea;
+        };
+
+        // 确定目标建筑
+        let targetArea = null;
+        const workHours = Math.min(
+          4,
+          Math.max(1, parseInt(decision.workHours) || 2),
+        );
+
+        if (decision.targetBuilding) {
+          const namedArea = findNamedWorkArea(decision.targetBuilding);
+          if (namedArea && allWorkBuildings.includes(namedArea.name)) {
+            targetArea = namedArea;
+          }
+        }
+
+        if (!targetArea && cleanupMentionedInDescription) {
+          targetArea = findNearestWorkArea(cleanupBuildings);
+        }
+
+        // 1) LLM指定了目标位置且是工作建筑 → 尊重LLM选择
+        if (
+          !targetArea &&
+          decision.targetX !== undefined &&
+          decision.targetY !== undefined
+        ) {
+          const llmArea = findAreaAt(decision.targetX, decision.targetY);
+          if (llmArea && allWorkBuildings.includes(llmArea.name)) {
+            targetArea = llmArea;
+          }
+        }
+
+        // 2) LLM没指定有效工作建筑 → 用偏好建筑
+        if (!targetArea) {
+          let bestDist = Infinity;
+          for (const area of areas) {
+            if (area.isBlocked || !area.cells || area.cells.length === 0)
+              continue;
+            if (
+              !workBuildingNames.includes(area.name) &&
+              !cleanupBuildings.includes(area.name)
+            )
+              continue;
+            if (!this.preferences.places.includes(area.name)) continue;
+            let sumX = 0,
+              sumY = 0;
+            for (const c of area.cells) {
+              sumX += c.x;
+              sumY += c.y;
+            }
+            const cx = Math.round(sumX / area.cells.length);
+            const cy = Math.round(sumY / area.cells.length);
+            const dist =
+              Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
+            if (dist < bestDist) {
+              bestDist = dist;
+              targetArea = area;
+            }
+          }
+        }
+
+        // 3) 没有偏好匹配 → 最近的工作建筑
+        if (!targetArea) {
+          targetArea = findNearestWorkArea(workBuildingNames);
+        }
+
+        const canWorkInCurrentArea =
+          currentArea &&
+          (workBuildingNames.includes(currentArea) ||
+            cleanupBuildings.includes(currentArea));
+        const canWorkHereForThisDecision =
+          canWorkInCurrentArea &&
+          (!cleanupMentionedInDescription || cleanupBuildings.includes(currentArea));
+
+        // 只有当前站着的地方就是“本次真正目标”时，才允许原地工作
+        if (
+          canWorkHereForThisDecision &&
+          (!targetArea || currentArea === targetArea.name)
+        ) {
+          if (isCleanup) {
+            this.cleanupOverrideUntil = null;
+            this.cleanupRetargetAt = null;
+          }
+          return {
+            type: this.ActionType.WORK,
+            description:
+              decision.description || (isCleanup ? "净化污染" : "工作"),
+            hourlyRate: effectiveHourlyRate,
+            workHours,
+            timestamp: new Date(),
+          };
+        }
+
+        if (targetArea) {
+          const isCleanupTarget = cleanupBuildings.includes(targetArea.name);
+          const targetHourlyRate = isCleanupTarget
+            ? 0
+            : decision.hourlyRate || GAME_CONFIG.decision.defaultHourlyRate;
+
+          // 已在目标建筑内，直接工作
+          const alreadyInside = targetArea.cells.some(
+            (c) => c.x === this.position.x && c.y === this.position.y,
+          );
+          if (alreadyInside) {
+            if (isCleanupTarget) {
+              this.cleanupOverrideUntil = null;
+              this.cleanupRetargetAt = null;
+            }
             return {
-              type: this.ActionType.MOVE,
-              description: `前往工作地点(${target.x}, ${target.y})`,
-              targetPosition: target,
+              type: this.ActionType.WORK,
+              description: decision.description || (isCleanupTarget ? "净化污染" : "工作"),
+              hourlyRate: targetHourlyRate,
+              workHours,
               timestamp: new Date(),
             };
           }
+
+          const passable = targetArea.cells.filter((c) =>
+            worldState.isPassable ? worldState.isPassable(c.x, c.y) : true,
+          );
+          if (passable.length > 0) {
+            const cell = passable[Math.floor(Math.random() * passable.length)];
+            const dx = Math.abs(cell.x - this.position.x);
+            const dy = Math.abs(cell.y - this.position.y);
+            if (dx + dy > 1) {
+              console.log(
+                `[${this.name}] WORK → 前往${targetArea.name}(${cell.x},${cell.y})`,
+              );
+              this.workTarget = {
+                building: targetArea.name,
+                position: cell,
+                workHours: workHours,
+              };
+              if (isCleanupTarget) {
+                this.cleanupOverrideUntil = null;
+              }
+              return {
+                type: this.ActionType.MOVE,
+                description: isCleanupTarget
+                  ? `前往${targetArea.name}净化污染`
+                  : `前往${targetArea.name}工作`,
+                targetPosition: cell,
+                timestamp: new Date(),
+              };
+            }
+          }
+
+          this.lastFeedback = isCleanupTarget
+            ? `污染太高了，要先走进${targetArea.name}开始净化。`
+            : `想去${targetArea.name}工作，但还没真正走进目标区域，下一步需要继续移动。`;
+          return {
+            type: this.ActionType.MOVE,
+            description: isCleanupTarget
+              ? `继续前往${targetArea.name}净化污染`
+              : `继续前往${targetArea.name}`,
+            targetPosition:
+              passable[0] ||
+              targetArea.cells[0] || {
+                x: this.position.x,
+                y: this.position.y,
+              },
+            timestamp: new Date(),
+          };
         }
+
+        this.lastFeedback = "想去工作，但暂时没有找到可到达的工作地点。";
         return {
-          type: this.ActionType.WORK,
-          description: decision.description || "工作",
-          hourlyRate: decision.hourlyRate || 15,
+          type: this.ActionType.WAIT,
+          description: decision.description || "暂时找不到合适的工作地点",
           timestamp: new Date(),
         };
       } else if (actionType === "BUY") {
         console.log(`[${this.name}] LLM决策: BUY购买食物`);
-        // 如果LLM指定了目标位置且不在当前位置，先移动过去
-        if (decision.targetX !== undefined && decision.targetY !== undefined) {
-          const dx = Math.abs(decision.targetX - this.position.x);
-          const dy = Math.abs(decision.targetY - this.position.y);
-          if (dx + dy > 1) {
-            const areaCell = pickRandomAreaCell(
-              decision.targetX,
-              decision.targetY,
-            );
-            const target = areaCell || {
-              x: decision.targetX,
-              y: decision.targetY,
-            };
+        const hasBuyTarget =
+          decision.targetX !== undefined && decision.targetY !== undefined;
+        let targetArea = hasBuyTarget
+          ? findAreaAt(decision.targetX, decision.targetY)
+          : null;
+
+        const isValidBuyArea = (area) =>
+          area &&
+          !area.isBlocked &&
+          area.services &&
+          area.services.some((s) => s.fullness > 0 || s.health > 0);
+
+        // 如果LLM没给有效购买目标，再退回系统兜底选择
+        if (!isValidBuyArea(targetArea)) {
+          targetArea = null;
+          let nearestDist = Infinity;
+          for (const area of areas) {
+            if (!isValidBuyArea(area)) continue;
+            let sumX = 0,
+              sumY = 0;
+            for (const c of area.cells) {
+              sumX += c.x;
+              sumY += c.y;
+            }
+            const cx = Math.round(sumX / area.cells.length);
+            const cy = Math.round(sumY / area.cells.length);
+            const dist =
+              Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
+            if (dist < nearestDist) {
+              nearestDist = dist;
+              targetArea = area;
+            }
+          }
+        }
+
+        if (targetArea) {
+          const areaCell = targetArea.cells.find((c) =>
+            worldState.isPassable ? worldState.isPassable(c.x, c.y) : true,
+          );
+          const target =
+            areaCell ||
+            pickRandomAreaCell(targetArea.cells[0].x, targetArea.cells[0].y);
+          const alreadyInside = targetArea.cells.some(
+            (c) => c.x === this.position.x && c.y === this.position.y,
+          );
+          if (!alreadyInside && target) {
+            console.log(`[${this.name}] 前往${targetArea.name}购买服务`);
             return {
               type: this.ActionType.MOVE,
-              description: `前往购买地点(${target.x}, ${target.y})`,
+              description: decision.description || `前往${targetArea.name}购买`,
               targetPosition: target,
+              serviceName: decision.serviceName || "",
               timestamp: new Date(),
             };
           }
         }
+
         return {
           type: this.ActionType.BUY,
           description: decision.description || "购买",
@@ -440,6 +787,7 @@ class Agent {
     console.log(
       `[${this.name}] 执行行动: ${action.type || "未知类型"} - ${action.description || "无描述"}`,
     );
+    this.recordDecision(action, world);
 
     // 记录行动到记忆
     const actionDesc = typeof action === "object" ? action.description : action;
@@ -459,30 +807,22 @@ class Agent {
         break;
 
       case this.ActionType.TALK:
-        if (action.targetAgent) {
-          await this.converseWith(action.targetAgent, world);
-        }
+        // 对话由 checkAgentInteractions → startConversation 处理；不再生成模板闲聊
         break;
 
       case this.ActionType.SLEEP:
         console.log(`[${this.name}] 执行SLEEP行动，准备回家睡觉...`);
         if (world) {
-          // 找到宿舍区域
+          // 找到宿舍区域，并为每个 agent 分配尽量不重叠的落点
           let myHome = null;
           const areas = world.getAreas ? world.getAreas() : [];
           for (const area of areas) {
             if (area.name === "宿舍" && area.cells && area.cells.length > 0) {
-              let sumX = 0,
-                sumY = 0;
-              for (const c of area.cells) {
-                sumX += c.x;
-                sumY += c.y;
-              }
+              const assignedCell =
+                world.findAreaCell?.("宿舍", this.position, this.id) ??
+                area.cells[0];
               myHome = {
-                position: {
-                  x: Math.round(sumX / area.cells.length),
-                  y: Math.round(sumY / area.cells.length),
-                },
+                position: { ...assignedCell },
                 services: area.services || [],
               };
               break;
@@ -494,7 +834,8 @@ class Agent {
               Math.abs(myHome.position.x - this.position.x) +
               Math.abs(myHome.position.y - this.position.y);
 
-            if (distance <= 1) {
+            const alreadyAtHome = world.isAgentAtHome?.(this) || distance === 0;
+            if (alreadyAtHome) {
               // 已经在家附近，使用睡觉服务
               console.log(`[${this.name}] 已经到家，开始睡觉`);
               const sleepService = myHome.services.find(
@@ -506,21 +847,26 @@ class Agent {
                 this.status = "sleeping";
               }
             } else {
-              // 不在家，先移动回家
+              // 不在家，先移动回家（标记为sleeping，这样dream phase能检测到）
               console.log(`[${this.name}] 距离家还有${distance}格，先移动回家`);
               await this.memory.addMemory(
                 `夜深了，准备回家睡觉`,
                 this.MemoryType.THOUGHT,
                 7,
               );
+              this.status = "sleeping";
               this.startMoving({ ...myHome.position });
             }
           } else {
-            console.warn(`[${this.name}] 未找到宿舍，原地睡觉`);
-            this.status = "sleeping";
+            console.warn(`[${this.name}] 未找到宿舍，无法进入睡眠状态`);
+            this.status = "idle";
+            this.currentAction = null;
+            this.lastFeedback = "想睡觉，但地图上找不到宿舍。";
           }
         } else {
-          this.status = "sleeping";
+          this.status = "idle";
+          this.currentAction = null;
+          this.lastFeedback = "想睡觉，但当前世界不可用。";
         }
         break;
 
@@ -531,7 +877,27 @@ class Agent {
         break;
 
       case this.ActionType.WORK:
+        if (world) {
+          const currentArea = world.getAreaNameAt?.(this.position.x, this.position.y);
+          const canWorkHere =
+            currentArea &&
+            ["实验室", "工厂", "仓库", "田地", "图书馆", "许愿池"].includes(
+              currentArea,
+            );
+          if (!canWorkHere) {
+            this.status = "idle";
+            this.lastFeedback = "说要工作，但当前位置并不在可工作的建筑里。";
+            break;
+          }
+        }
         this.status = "working";
+        // 设置工作结束时间（gameTime由tick统一推进）
+        if (action.workHours && this.world) {
+          this.workEndTime = new Date(
+            this.world.gameTime.getTime() + action.workHours * 3600000,
+          );
+          this._workStartTime = new Date(this.world.gameTime);
+        }
         break;
 
       case this.ActionType.BUY:
@@ -557,10 +923,18 @@ class Agent {
 
             const distance =
               Math.abs(cx - this.position.x) + Math.abs(cy - this.position.y);
-            if (distance <= 5 && distance < minDistance) {
-              // 找食物服务
+            if (
+              distance <= GAME_CONFIG.movement.observationRange &&
+              distance < minDistance
+            ) {
+              // 找可购买服务（食物或健康物品，考虑建筑等级成本倍率和粮食库存）
+              const costMult = world?.getCostMultiplier?.(area.name) ?? 1;
+              const foodStock = world?.worldResources?.foodStock ?? 0;
               const foodServices = area.services.filter(
-                (s) => s.fullness > 0 && this.greenPoints >= s.cost,
+                (s) =>
+                  (s.fullness > 0 || s.health > 0) &&
+                  this.greenPoints >= Math.round(s.cost * costMult) &&
+                  (s.fullness <= 0 || foodStock > 0),
               );
               if (foodServices.length > 0) {
                 const obj = {
@@ -579,11 +953,18 @@ class Agent {
                     minDistance = distance;
                   }
                 } else {
-                  // 否则找性价比最高的
+                  // 否则根据当前需求选性价比最高的
                   bestArea = obj;
-                  bestService = foodServices.sort(
-                    (a, b) => b.fullness / b.cost - a.fullness / a.cost,
-                  )[0];
+                  bestService = foodServices.sort((a, b) => {
+                    // 优先满足最急需的属性
+                    const aVal =
+                      (a.fullness || 0) * (this.fullness < 30 ? 2 : 1) +
+                      (a.health || 0) * (this.health.current < 50 ? 3 : 0.5);
+                    const bVal =
+                      (b.fullness || 0) * (this.fullness < 30 ? 2 : 1) +
+                      (b.health || 0) * (this.health.current < 50 ? 3 : 0.5);
+                    return bVal / b.cost - aVal / a.cost;
+                  })[0];
                   minDistance = distance;
                 }
               }
@@ -600,7 +981,7 @@ class Agent {
             this.currentAction = null;
           } else {
             // 分析失败原因
-            const cheapestFood = 5;
+            const cheapestFood = GAME_CONFIG.survival.cheapestFoodPrice;
             if (this.greenPoints < cheapestFood) {
               console.log(
                 `[${this.name}] 积分不足(${this.greenPoints})，买不起食物，需要去工作赚钱`,
@@ -610,17 +991,16 @@ class Agent {
                 this.MemoryType.OBSERVATION,
                 8,
               );
-              // 如果饥饿且没钱，自动转为工作状态
-              if (this.fullness < 40) {
-                console.log(`[${this.name}] 饥饿且没钱，自动切换到WORK状态`);
-                this.status = "working";
-                this.currentAction = {
-                  type: this.ActionType.WORK,
-                  description: "工作赚钱买食物",
-                  hourlyRate: 15,
-                  timestamp: new Date(),
-                };
-                return; // 提前返回，不重置为idle
+              // 如果饥饿且没钱，不直接替agent开工，而是交给下一轮决策
+              if (this.fullness < d.fullnessWarning) {
+                console.log(
+                  `[${this.name}] 饥饿且没钱，等待下一轮自主决定如何赚钱`,
+                );
+                this.status = "idle";
+                this.currentAction = null;
+                this.workEndTime = null;
+                this._workStartTime = null;
+                return;
               }
             } else {
               console.log(`[${this.name}] 附近没有卖食物的地方`);
@@ -647,6 +1027,30 @@ class Agent {
     return action;
   }
 
+  recordDecision(action, world) {
+    const actionObject =
+      action && typeof action === "object" ? action : { description: action };
+    const target = actionObject.targetPosition
+      ? { ...actionObject.targetPosition }
+      : actionObject.targetObject?.position
+        ? { ...actionObject.targetObject.position }
+        : null;
+    this.decisionHistory.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      dayCount: world?.dayCount ?? 1,
+      gameTime: world?.gameTime
+        ? world.gameTime.toISOString()
+        : new Date().toISOString(),
+      type: actionObject.type || "UNKNOWN",
+      description: actionObject.description || "无描述",
+      target,
+      source:
+        actionObject.source ||
+        (actionObject.isFallback ? "fallback" : "llm"),
+    });
+    this.decisionHistory = this.decisionHistory.slice(-10);
+  }
+
   /**
    * 开始移动（使用A*寻路）
    */
@@ -665,7 +1069,7 @@ class Agent {
       if (x === targetPosition.x && y === targetPosition.y) {
         return world.isPassable(x, y);
       }
-      return world.isPassable(x, y) && !world.isAgentAt(x, y, agentId);
+      return world.isPassable(x, y);
     });
 
     if (!path || path.length === 0) {
@@ -673,13 +1077,18 @@ class Agent {
         `[${this.name}] 无法找到到达目标(${targetPosition.x},${targetPosition.y})的路径`,
       );
       this.status = "idle";
+      this.currentAction = null;
+      this.workTarget = null;
+      this.lastFeedback = `前往(${targetPosition.x},${targetPosition.y})的路线被卡住了，需要重新规划。`;
       return false;
     }
 
     this.currentPath = path;
     this.currentPathIndex = 0;
     this.moveTarget = targetPosition;
-    this.status = "moving";
+    if (this.status !== "sleeping") {
+      this.status = "moving";
+    }
 
     console.log(
       `[${this.name}] A*寻路完成，路径长度: ${path.length}格，目标: (${targetPosition.x},${targetPosition.y})`,
@@ -709,7 +1118,38 @@ class Agent {
     this.moveTarget = null;
     this.currentPath = [];
     this.currentPathIndex = 0;
-    this.status = "idle";
+    if (this.status !== "sleeping") {
+      this.status = "idle";
+      this.nextDecisionAt = this.world?.gameTime
+        ? new Date(this.world.gameTime)
+        : new Date();
+    }
+  }
+
+  lockForConversation(durationMs = 0) {
+    const safeDuration = Math.max(0, Number(durationMs) || 0);
+    this.stopMoving();
+    this.conversationLockUntil = new Date(Date.now() + safeDuration).toISOString();
+    this.status = "talking";
+  }
+
+  isConversationLocked(now = Date.now()) {
+    if (!this.conversationLockUntil) return false;
+    return new Date(this.conversationLockUntil).getTime() > now;
+  }
+
+  releaseConversationLock(now = Date.now()) {
+    if (!this.conversationLockUntil) return false;
+    const lockUntil = new Date(this.conversationLockUntil).getTime();
+    if (lockUntil > now) return false;
+    this.conversationLockUntil = null;
+    if (this.status === "talking") {
+      this.status = "idle";
+    }
+    if (!this.currentAction || this.currentAction.type === this.ActionType.TALK) {
+      this.currentAction = null;
+    }
+    return true;
   }
 
   /**
@@ -733,7 +1173,10 @@ class Agent {
       this.moveTarget = null;
       this.currentPath = [];
       this.currentPathIndex = 0;
-      this.status = "idle";
+      // sleeping状态的agent到家后不重置为idle，保留sleeping意图
+      if (this.status !== "sleeping") {
+        this.status = "idle";
+      }
       return false;
     }
 
@@ -747,61 +1190,11 @@ class Agent {
     else if (dy > 0) this.facingDirection = "down";
     else if (dy < 0) this.facingDirection = "up";
 
-    // 检查动态障碍（地形或 agent 占用）
+    // 检查动态障碍（仅地形）
     const blocked =
-      this.world &&
-      (!this.world.isPassable(nextStep.x, nextStep.y) ||
-        this.world.isAgentAt(nextStep.x, nextStep.y, this.id));
+      this.world && !this.world.isPassable(nextStep.x, nextStep.y);
 
     if (blocked) {
-      // 检测交换死锁：对方想去我的位置
-      if (this.world) {
-        const blockerId = this.world.occupancyMap.get(
-          `${nextStep.x},${nextStep.y}`,
-        );
-        if (blockerId) {
-          const blocker = this.world.agents.get(blockerId);
-          if (
-            blocker &&
-            blocker.moveTarget &&
-            blocker.moveTarget.x === this.position.x &&
-            blocker.moveTarget.y === this.position.y
-          ) {
-            // 交换死锁！用 ID 大小打破对称
-            if (this.id > blockerId) {
-              console.log(
-                `[${this.name}] 检测到交换死锁，让路给 ${blocker.name}`,
-              );
-              return true; // 让路，等待对方先走
-            }
-            // 我先走：同时交换两个 agent 的位置
-            const oldPosA = { ...this.position };
-            const oldPosB = { ...blocker.position };
-            this.position.x = nextStep.x;
-            this.position.y = nextStep.y;
-            blocker.position.x = oldPosA.x;
-            blocker.position.y = oldPosA.y;
-            // 更新占用表
-            this.world.occupancyMap.delete(`${oldPosA.x},${oldPosA.y}`);
-            this.world.occupancyMap.delete(`${oldPosB.x},${oldPosB.y}`);
-            this.world.occupancyMap.set(
-              `${this.position.x},${this.position.y}`,
-              this.id,
-            );
-            this.world.occupancyMap.set(
-              `${blocker.position.x},${blocker.position.y}`,
-              blocker.id,
-            );
-            console.log(
-              `[${this.name}] 交换死锁打破：与 ${blocker.name} 交换位置`,
-            );
-            this.currentPathIndex++;
-            this.movesSinceLastDecision++;
-            return this.currentPathIndex < this.currentPath.length;
-          }
-        }
-      }
-
       console.log(`[${this.name}] 路径被阻挡，重新计算路径...`);
 
       const agentId = this.id;
@@ -814,7 +1207,7 @@ class Agent {
           if (x === this.moveTarget.x && y === this.moveTarget.y) {
             return world.isPassable(x, y);
           }
-          return world.isPassable(x, y) && !world.isAgentAt(x, y, agentId);
+          return world.isPassable(x, y);
         },
       );
 
@@ -826,8 +1219,24 @@ class Agent {
         );
         return true; // 继续移动
       } else {
-        // 无路可走，等待一拍后重试
-        console.log(`[${this.name}] 无法找到新路径，等待中...`);
+        // 无路可走，累计失败次数，超过阈值则放弃
+        this._pathFailCount = (this._pathFailCount || 0) + 1;
+        if (this._pathFailCount >= 10) {
+          console.log(
+            `[${this.name}] 连续${this._pathFailCount}次无路可走，放弃移动`,
+          );
+          this.moveTarget = null;
+          this.currentPath = [];
+          this.currentPathIndex = 0;
+          this._pathFailCount = 0;
+          if (this.status !== "sleeping") {
+            this.status = "idle";
+          }
+          this.currentAction = null;
+          this.workTarget = null;
+          this.lastFeedback = "路线一直走不通，先停下来重新考虑下一步。";
+          return false;
+        }
         return true;
       }
     }
@@ -836,6 +1245,7 @@ class Agent {
     const oldPos = { ...this.position };
     this.position.x = nextStep.x;
     this.position.y = nextStep.y;
+    this._pathFailCount = 0;
     // 更新占用表
     if (this.world) {
       this.world.setAgentOccupancy(this.id, oldPos, this.position);
@@ -846,13 +1256,6 @@ class Agent {
     const remainingSteps = this.currentPath.length - this.currentPathIndex;
     console.log(
       `[${this.name}] 移动: (${oldPos.x},${oldPos.y}) -> (${this.position.x},${this.position.y})，剩余: ${remainingSteps}步，已走${this.movesSinceLastDecision}格`,
-    );
-
-    // 记录移动记忆
-    this.memory.addMemory(
-      `我移动到了位置(${this.position.x}, ${this.position.y})`,
-      this.MemoryType.ACTION,
-      5,
     );
 
     // 检查是否到达目标
@@ -866,12 +1269,16 @@ class Agent {
       this.moveTarget = null;
       this.currentPath = [];
       this.currentPathIndex = 0;
-      this.status = "idle";
+      if (this.status !== "sleeping") {
+        this.status = "idle";
+      }
       return false;
     }
 
     // 还有剩余移动
-    this.status = "moving";
+    if (this.status !== "sleeping") {
+      this.status = "moving";
+    }
     return true;
   }
 
@@ -909,50 +1316,6 @@ class Agent {
   }
 
   /**
-   * 与其他Agent对话
-   */
-  async converseWith(otherAgent, world) {
-    const conversationKey = [this.id, otherAgent.id].sort().join("-");
-    const lastTalk = this.lastConversation.get(conversationKey);
-
-    // 避免过于频繁的对话
-    if (lastTalk && Date.now() - lastTalk.getTime() < 5 * 60 * 1000) {
-      return;
-    }
-
-    // 获取相关记忆
-    const query = `关于${otherAgent.name}`;
-    const myMemories = await this.memory.retrieveMemories(query, 5);
-
-    // 对话生成
-    try {
-      const response = await this.llm.chat([
-        {
-          role: "system",
-          content: buildConversationPrompt(this, otherAgent.name),
-        },
-        { role: "user", content: `${this.name}对${otherAgent.name}说:` },
-      ]);
-
-      // 记录对话
-      await this.memory.addMemory(
-        `我对${otherAgent.name}说: ${response}`,
-        this.MemoryType.DIALOGUE,
-        7,
-        { targetAgent: otherAgent.id },
-      );
-
-      // 更新最后对话时间
-      this.lastConversation.set(conversationKey, new Date());
-      otherAgent.lastConversation.set(conversationKey, new Date());
-
-      return response;
-    } catch (e) {
-      console.error("对话失败:", e);
-    }
-  }
-
-  /**
    * 创建每日计划
    */
   async createDailyPlan() {
@@ -984,14 +1347,15 @@ class Agent {
    * 获取时间上下文
    */
   getTimeContext(time) {
-    const hour = time.getHours();
-    if (hour < 6) return "凌晨";
-    if (hour < 9) return "早晨";
-    if (hour < 12) return "上午";
-    if (hour < 14) return "中午";
-    if (hour < 18) return "下午";
-    if (hour < 22) return "晚上";
-    return "深夜";
+    const minutes = time.getHours() * 60 + time.getMinutes();
+    if (minutes < 120) return "午夜";
+    if (minutes < 360) return "凌晨";
+    if (minutes < 540) return "清晨";
+    if (minutes < 690) return "上午";
+    if (minutes < 810) return "中午";
+    if (minutes < 1080) return "下午";
+    if (minutes < 1200) return "傍晚";
+    return "晚上";
   }
 
   /**
@@ -1043,6 +1407,32 @@ class Agent {
       health: this.health,
       greenPoints: this.greenPoints,
       fullness: this.fullness,
+      cycleGuidance: this.cycleGuidance,
+      playerGuidance: this.playerGuidance,
+      awakeHoursSinceSleep: this.awakeHoursSinceSleep,
+      consecutiveNoSleepDays: this.consecutiveNoSleepDays,
+      backpack: this.backpack,
+      decisionHistory: this.decisionHistory,
+      workEndTime: this.workEndTime ? this.workEndTime.toISOString() : null,
+      workStartTime: this._workStartTime
+        ? this._workStartTime.toISOString()
+        : null,
+      facingDirection: this.facingDirection,
+      lastSurvivalUpdate: this.lastSurvivalUpdate,
+      nextDecisionAt: this.nextDecisionAt
+        ? this.nextDecisionAt.toISOString()
+        : null,
+      currentPlan: this.currentPlan
+        ? {
+            ...this.currentPlan,
+            created:
+              this.currentPlan.created instanceof Date
+                ? this.currentPlan.created.toISOString()
+                : this.currentPlan.created,
+          }
+        : null,
+      lastConversation: Array.from(this.lastConversation.entries()),
+      conversationLockUntil: this.conversationLockUntil,
       memory: this.memory.exportData(),
     };
   }
@@ -1064,8 +1454,57 @@ class Agent {
     if (data.fullness !== undefined) {
       agent.fullness = data.fullness;
     }
+    if (data.cycleGuidance) {
+      agent.cycleGuidance = data.cycleGuidance;
+    }
+    if (typeof data.playerGuidance === "string") {
+      agent.playerGuidance = data.playerGuidance;
+    }
+    if (data.awakeHoursSinceSleep !== undefined) {
+      agent.awakeHoursSinceSleep = data.awakeHoursSinceSleep;
+    }
+    if (data.consecutiveNoSleepDays !== undefined) {
+      agent.consecutiveNoSleepDays = data.consecutiveNoSleepDays;
+    }
+    if (data.backpack) {
+      agent.backpack = data.backpack;
+    }
+    if (Array.isArray(data.decisionHistory)) {
+      agent.decisionHistory = data.decisionHistory.slice(-10);
+    }
+    if (data.workEndTime) {
+      agent.workEndTime = new Date(data.workEndTime);
+    }
+    if (data.workStartTime) {
+      agent._workStartTime = new Date(data.workStartTime);
+    }
+    if (data.facingDirection) {
+      agent.facingDirection = data.facingDirection;
+    }
     if (data.lastSurvivalUpdate) {
       agent.lastSurvivalUpdate = data.lastSurvivalUpdate;
+    }
+    if (data.currentPlan) {
+      agent.currentPlan = {
+        ...data.currentPlan,
+        created: data.currentPlan.created
+          ? new Date(data.currentPlan.created)
+          : new Date(),
+      };
+    }
+    if (Array.isArray(data.lastConversation)) {
+      agent.lastConversation = new Map(data.lastConversation);
+    } else if (
+      data.lastConversation &&
+      typeof data.lastConversation === "object"
+    ) {
+      agent.lastConversation = new Map(Object.entries(data.lastConversation));
+    }
+    if (data.conversationLockUntil) {
+      agent.conversationLockUntil = data.conversationLockUntil;
+    }
+    if (data.nextDecisionAt) {
+      agent.nextDecisionAt = new Date(data.nextDecisionAt);
     }
     if (data.memory) {
       agent.memory.importData(data.memory);
@@ -1085,57 +1524,60 @@ class Agent {
     isMoving = false,
     isWorking = false,
     isSleeping = false,
+    worldPollution = 0,
   ) {
     const now = Date.now();
     const elapsedHours = gameMinutes / 60;
 
     // 饱腹值消耗
-    let fullnessConsumed = elapsedHours * 3; // 每小时消耗3点
+    const s = GAME_CONFIG.survival;
+    let fullnessConsumed = elapsedHours * s.fullnessBaseConsumption;
 
     if (isMoving) {
-      fullnessConsumed += elapsedHours * 2; // 移动额外消耗
+      fullnessConsumed += elapsedHours * s.fullnessMoveExtra;
     }
     if (isWorking) {
-      fullnessConsumed += elapsedHours * 2; // 工作额外消耗
+      fullnessConsumed += elapsedHours * s.fullnessWorkExtra;
     }
     if (isSleeping) {
-      fullnessConsumed = elapsedHours * 1; // 睡觉消耗减半
+      fullnessConsumed = elapsedHours * s.fullnessSleepRate;
     }
 
     this.fullness = Math.max(0, this.fullness - fullnessConsumed);
 
     // 健康值变化
     if (this.fullness === 0) {
-      // 极度饥饿，健康快速下降
-      const healthLost = elapsedHours * 5;
+      const healthLost = elapsedHours * s.healthStarvingLoss;
       this.health.current = Math.max(0, this.health.current - healthLost);
-    } else if (this.fullness < 20) {
-      // 饥饿状态，健康缓慢下降
-      const healthLost = elapsedHours * 2;
+    } else if (this.fullness < s.hungerHealthLossThreshold) {
+      const healthLost = elapsedHours * s.healthHungryLoss;
       this.health.current = Math.max(0, this.health.current - healthLost);
     } else if (isSleeping) {
-      // 睡觉恢复健康
-      const healthGain = elapsedHours * 10;
+      const healthGain = elapsedHours * s.healthSleepGain;
       this.health.current = Math.min(
         this.health.max,
         this.health.current + healthGain,
       );
-      // 重置上次睡觉时间
-      this.lastSleepTime = now;
+      this.awakeHoursSinceSleep = 0;
       this.consecutiveNoSleepDays = 0;
-    } else if (this.fullness >= 80 && !isMoving && !isWorking) {
-      // 饱腹且休息时，健康缓慢恢复
-      const healthGain = elapsedHours * 1;
+    } else if (
+      this.fullness >= s.healthRestThreshold &&
+      !isMoving &&
+      !isWorking
+    ) {
+      const healthGain = elapsedHours * s.healthRestGain;
       this.health.current = Math.min(
         this.health.max,
         this.health.current + healthGain,
       );
     }
 
-    // 不睡觉惩罚机制
-    const hoursSinceLastSleep = (now - this.lastSleepTime) / (1000 * 60 * 60); // 现实小时
-    const gameDaysSinceLastSleep =
-      (hoursSinceLastSleep * (gameMinutes / 60)) / 24; // 游戏天
+    if (!isSleeping) {
+      this.awakeHoursSinceSleep += elapsedHours;
+    }
+
+    // 不睡觉惩罚机制：按游戏内清醒时长结算
+    const gameDaysSinceLastSleep = this.awakeHoursSinceSleep / 24;
 
     if (gameDaysSinceLastSleep >= 1 && !isSleeping) {
       // 计算连续不睡觉天数（取整）
@@ -1146,19 +1588,25 @@ class Agent {
 
         let sleepPenalty = 0;
         if (noSleepDays >= 3) {
-          // 连续3天不睡觉，健康归零
-          sleepPenalty = this.health.current;
-          console.log(
-            `[${this.name}] 连续${noSleepDays}天没有睡觉，健康值归零！`,
-          );
+          sleepPenalty =
+            s.sleepPenaltyDay3 === "lethal"
+              ? this.health.current
+              : Number(s.sleepPenaltyDay3) || 0;
+          const penaltyText =
+            s.sleepPenaltyDay3 === "lethal"
+              ? "健康值归零"
+              : `健康值-${sleepPenalty}`;
+          console.log(`[${this.name}] 连续${noSleepDays}天没有睡觉，${penaltyText}！`);
         } else if (noSleepDays >= 2) {
-          // 连续2天不睡觉，扣50健康
-          sleepPenalty = 50;
-          console.log(`[${this.name}] 连续${noSleepDays}天没有睡觉，健康值-50`);
+          sleepPenalty = s.sleepPenaltyDay2;
+          console.log(
+            `[${this.name}] 连续${noSleepDays}天没有睡觉，健康值-${s.sleepPenaltyDay2}`,
+          );
         } else if (noSleepDays >= 1) {
-          // 1天不睡觉，扣10健康
-          sleepPenalty = 10;
-          console.log(`[${this.name}] ${noSleepDays}天没有睡觉，健康值-10`);
+          sleepPenalty = s.sleepPenaltyDay1;
+          console.log(
+            `[${this.name}] ${noSleepDays}天没有睡觉，健康值-${s.sleepPenaltyDay1}`,
+          );
         }
 
         if (sleepPenalty > 0) {
@@ -1173,12 +1621,69 @@ class Agent {
       }
     }
 
+    // 污染健康伤害
+    if (worldPollution > s.pollutionDamageThreshold) {
+      const pollutionDamage =
+        elapsedHours *
+        (worldPollution - s.pollutionDamageThreshold) *
+        s.pollutionDamageRate;
+      this.health.current = Math.max(0, this.health.current - pollutionDamage);
+    }
+    if (worldPollution > s.pollutionCriticalThreshold) {
+      const criticalDamage = elapsedHours * s.pollutionCriticalDamage;
+      this.health.current = Math.max(0, this.health.current - criticalDamage);
+    }
+
     // 健康=0时进入昏迷状态
     if (this.health.current === 0) {
       this.status = "unconscious";
     }
 
+    // 从背包自动使用物品
+    if (this.status !== "unconscious") {
+      this.useFromBackpack();
+    }
+
     this.lastSurvivalUpdate = now;
+  }
+
+  async applyInsomniaNightPenalty(dayCount = 1) {
+    const s = GAME_CONFIG.survival;
+    const noSleepDays = Math.max(1, (this.consecutiveNoSleepDays || 0) + 1);
+    this.consecutiveNoSleepDays = noSleepDays;
+    this.awakeHoursSinceSleep = Math.max(
+      this.awakeHoursSinceSleep || 0,
+      noSleepDays * 24,
+    );
+
+    let sleepPenalty = 0;
+    if (noSleepDays >= 3) {
+      sleepPenalty =
+        s.sleepPenaltyDay3 === "lethal"
+          ? this.health.current
+          : Number(s.sleepPenaltyDay3) || 0;
+    } else if (noSleepDays >= 2) {
+      sleepPenalty = Number(s.sleepPenaltyDay2) || 0;
+    } else {
+      sleepPenalty = Number(s.sleepPenaltyDay1) || 0;
+    }
+
+    if (sleepPenalty > 0) {
+      this.health.current = Math.max(0, this.health.current - sleepPenalty);
+    }
+
+    const penaltyText =
+      sleepPenalty > 0
+        ? `健康-${Math.round(sleepPenalty)}`
+        : "没有额外扣血";
+    const feedback = `第${dayCount}天清晨醒来时，你因为没在宿舍入睡触发失眠：连续${noSleepDays}晚没睡好，${penaltyText}。今天要更早回宿舍。`;
+    this.lastFeedback = feedback;
+    await this.memory.addMemory(
+      feedback,
+      this.MemoryType.OBSERVATION,
+      9,
+    );
+    return { noSleepDays, sleepPenalty, feedback };
   }
 
   /**
@@ -1216,11 +1721,21 @@ class Agent {
       return;
     }
 
-    // 检查积分
-    if (service.cost > 0 && this.greenPoints < service.cost) {
-      console.log(`[${this.name}] 积分不足，无法使用 ${service.name}`);
+    const buildingType = object.name;
+    const world = this.world;
+
+    // 计算建筑等级倍率
+    const costMult = world?.getCostMultiplier?.(buildingType) ?? 1;
+    const effectMult = world?.getEffectMultiplier?.(buildingType) ?? 1;
+    const actualCost = Math.round(service.cost * costMult);
+
+    // 检查积分（使用实际成本）
+    if (actualCost > 0 && this.greenPoints < actualCost) {
+      console.log(
+        `[${this.name}] 积分不足，无法使用 ${service.name}（需要${actualCost}）`,
+      );
       await this.memory.addMemory(
-        `想去${object.name}消费但积分不够`,
+        `想去${object.name}消费但积分不够（需要${actualCost}）`,
         this.MemoryType.OBSERVATION,
         5,
       );
@@ -1228,22 +1743,103 @@ class Agent {
     }
 
     // 扣除积分
-    if (service.cost > 0) {
-      this.spendPoints(service.cost);
+    if (actualCost > 0) {
+      this.spendPoints(actualCost);
     }
 
-    // 应用效果
-    if (service.fullness) {
-      this.eat(service.fullness);
+    // 应用效果（乘以效果倍率）
+    // 物资基地物品存入背包，其他建筑直接生效
+    if (buildingType === "物资基地" && (service.fullness || service.health)) {
+      // 食物类物品需要消耗粮食库存
+      if (service.fullness && world?.worldResources) {
+        const stock = world.worldResources.foodStock || 0;
+        const foodStockCost = Math.max(
+          1,
+          Math.ceil((service.fullness || 0) / 12),
+        );
+        if (stock < foodStockCost) {
+          console.log(
+            `[${this.name}] 粮食库存不足，无法购买${service.name}（需要${foodStockCost}）`,
+          );
+          // 退还积分
+          if (actualCost > 0) this.greenPoints += actualCost;
+          this.lastFeedback = `物资基地库存不足，没能领取${service.name}。`;
+          await this.memory.addMemory(
+            this.lastFeedback,
+            this.MemoryType.OBSERVATION,
+            6,
+          );
+          return;
+        }
+        world.worldResources.foodStock = stock - foodStockCost;
+      }
+      const existing = this.backpack.find((i) => i.name === service.name);
+      if (existing) {
+        existing.quantity++;
+      } else {
+        this.backpack.push({
+          name: service.name,
+          quantity: 1,
+          fullness: service.fullness || 0,
+          health: service.health || 0,
+        });
+      }
+      console.log(
+        `[${this.name}] 将${service.name}放入背包，粮食库存:${world?.worldResources?.foodStock ?? "N/A"}，当前背包: ${this.backpack.map((i) => `${i.name}×${i.quantity}`).join(", ") || "空"}`,
+      );
+      this.lastFeedback = `已从物资基地领取${service.name}放入背包，之后饥饿或受伤时会自动使用。`;
+    } else {
+      if (service.fullness) {
+        this.eat(Math.round(service.fullness * effectMult));
+      }
+      if (service.health) {
+        this.heal(Math.round(service.health * effectMult));
+      }
     }
-    if (service.health) {
-      this.heal(service.health);
+
+    // 特殊建筑处理
+    if (world?.worldResources) {
+      if (buildingType === "图书馆" && service.name === "收集资料") {
+        // 图书馆：知识储备-1，概率转化为理论值或生产值
+        if (world.worldResources.knowledgeReserve > 0) {
+          world.worldResources.knowledgeReserve = Math.max(
+            0,
+            world.worldResources.knowledgeReserve - 1,
+          );
+          const libLevel = world.getBuildingLevel(
+            world.worldResources.knowledgeReserve,
+          );
+          const convertProb =
+            GAME_CONFIG.resourceAccumulation.knowledgeConversionChance /
+            libLevel;
+          if (Math.random() < convertProb) {
+            // 概率转理论值或生产值
+            if (Math.random() < GAME_CONFIG.decision.knowledgeSplitRatio) {
+              world.worldResources.techTheory = Math.min(
+                100,
+                world.worldResources.techTheory + 1,
+              );
+            } else {
+              world.worldResources.techProduction = Math.min(
+                100,
+                world.worldResources.techProduction + 1,
+              );
+            }
+          }
+        }
+      } else if (buildingType === "田地" && service.name === "种地") {
+        world.worldResources.materialValue = Math.min(
+          GAME_CONFIG.resourceAccumulation.materialValueMax,
+          world.worldResources.materialValue +
+            GAME_CONFIG.resourceAccumulation.materialValuePerInteraction,
+        );
+      }
     }
 
     // 记录到记忆
     const actionDesc = service.description || `${service.name}(${object.name})`;
     await this.memory.addMemory(
-      `在${object.name}${actionDesc}，消耗${service.cost}积分`,
+      `在${object.name}${actionDesc}，消耗${actualCost}积分`,
       this.MemoryType.ACTION,
       6,
     );
@@ -1252,10 +1848,76 @@ class Agent {
       `[${this.name}] 在${object.name}使用了${service.name}，剩余积分:${this.greenPoints}，饱腹:${this.fullness}，健康:${this.health.current}`,
     );
 
-    // 如果是睡觉，改变状态
+    // 如果是睡觉，改变状态并推进gameTime到醒来
     if (service.name === "睡觉") {
-      this.status = "sleeping";
+      // 恢复health
+      this.health.current = Math.min(this.health.max, this.health.current + 10);
+      this.consecutiveNoSleepDays = 0;
+
+      const hour = this.world ? this.world.gameTime.getHours() : 8;
+      if (hour >= 22 || hour < 6) {
+        // 夜晚：status="sleeping"，等所有人到齐触发梦境
+        this.status = "sleeping";
+      } else {
+        // 白天：纯恢复数值，立即idle
+        this.status = "idle";
+      }
     }
+  }
+
+  /**
+   * 从背包自动使用物品恢复属性
+   * 优先恢复健康，再恢复饱腹
+   */
+  useFromBackpack() {
+    const s = GAME_CONFIG.survival;
+    // 优先恢复健康
+    if (this.health.current < s.autoUseHealthThreshold) {
+      const healthItem = this.backpack
+        .filter((i) => i.health > 0)
+        .sort((a, b) => b.health - a.health)[0];
+      if (healthItem) {
+        this.heal(healthItem.health);
+        healthItem.quantity--;
+        if (healthItem.quantity <= 0) {
+          this.backpack = this.backpack.filter((i) => i !== healthItem);
+        }
+        console.log(
+          `[${this.name}] 从背包使用${healthItem.name}，健康+${healthItem.health}，剩余: ${this.backpack.map((i) => `${i.name}×${i.quantity}`).join(", ") || "空"}`,
+        );
+        this.lastFeedback = `背包自动使用${healthItem.name}，健康+${healthItem.health}。`;
+        this.memory.addMemory(
+          this.lastFeedback,
+          this.MemoryType.OBSERVATION,
+          5,
+        );
+        return true;
+      }
+    }
+    // 恢复饱腹
+    if (this.fullness < s.autoUseFullnessThreshold) {
+      const foodItem = this.backpack
+        .filter((i) => i.fullness > 0)
+        .sort((a, b) => b.fullness - a.fullness)[0];
+      if (foodItem) {
+        this.eat(foodItem.fullness);
+        foodItem.quantity--;
+        if (foodItem.quantity <= 0) {
+          this.backpack = this.backpack.filter((i) => i !== foodItem);
+        }
+        console.log(
+          `[${this.name}] 从背包使用${foodItem.name}，饱腹+${foodItem.fullness}，剩余: ${this.backpack.map((i) => `${i.name}×${i.quantity}`).join(", ") || "空"}`,
+        );
+        this.lastFeedback = `背包自动使用${foodItem.name}，饱腹+${foodItem.fullness}。`;
+        this.memory.addMemory(
+          this.lastFeedback,
+          this.MemoryType.OBSERVATION,
+          5,
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1277,6 +1939,32 @@ class Agent {
    */
   earnPoints(amount) {
     this.greenPoints += amount;
+  }
+
+  /**
+   * 晨会发言：用LLM生成一句话今日计划
+   */
+  async generateMeetingMessage(townContext, meetingContext = {}) {
+    try {
+      const response = await this.llm.chat(
+        [
+          { role: "system", content: buildSystemPrompt(this) },
+          {
+            role: "user",
+            content: buildMeetingPrompt(this, townContext, meetingContext),
+          },
+        ],
+        { timeout: 15000 },
+      );
+      return (
+        this.world?.sanitizeConversationText?.(response, {
+          replacement: "大家",
+        }) || response.replace(/^["']|["']$/g, "").trim()
+      );
+    } catch (e) {
+      console.warn(`[晨会] ${this.name} LLM调用失败:`, e.message || e);
+      return "（沉思中...）";
+    }
   }
 }
 

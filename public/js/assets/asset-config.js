@@ -60,18 +60,12 @@ export const ASSET_CONFIG = {
       displaySize: [38, 58],
     },
     xiaoxiao: {
-      sprite: "characters/xiaoxiao.png",
+      sprite: "characters/default.png",
       portrait: "portraits/xiaoxiao.png",
       displaySize: [48, 48],
-      animation: {
-        basePath: "characters/xiaoxiao/",
-        frameSize: [48, 48],
-        walkFrames: 6,
-        idleFrames: 1,
-      },
     },
     dada: {
-      sprite: "characters/dada.png",
+      sprite: "characters/default.png",
       portrait: "portraits/xiaoxiao.png",
       displaySize: [48, 48],
       animation: {
@@ -86,6 +80,11 @@ export const ASSET_CONFIG = {
   // 地图配置
   map: {
     image: "map.png",
+    pollutionStages: [
+      "pollution-stages/stage-1.png",
+      "pollution-stages/stage-2.png",
+      "pollution-stages/stage-3.png",
+    ],
     defaultTileSize: 48,
     imageWidth: 1536,
     imageHeight: 1024,

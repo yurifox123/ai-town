@@ -10,7 +10,12 @@ dotenv.config();
 import "./db/connection";
 import "./db/schema";
 
-import { handleLlmChat, handleLlmEmbedding } from "./routes/llm";
+import {
+  handleLlmChat,
+  handleLlmConfig,
+  handleLlmConfigTest,
+  handleLlmEmbedding,
+} from "./routes/llm";
 import { handleAgents } from "./routes/agents";
 import { handleMemories } from "./routes/memories";
 import { handleReflections } from "./routes/reflections";
@@ -22,6 +27,7 @@ import {
   handleSpritesBatch,
   handleSpriteList,
 } from "./routes/sprites";
+import { getStaticContentType, resolvePublicFile } from "./static";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +48,10 @@ function matchRoute(url: string, method: string) {
   const pathname = new URL(url, "http://localhost").pathname;
 
   // LLM endpoints
+  if (pathname === "/api/llm/config" && (method === "GET" || method === "PUT"))
+    return { handler: "llm-config" };
+  if (pathname === "/api/llm/config/test" && method === "POST")
+    return { handler: "llm-config-test" };
   if (pathname === "/api/llm/chat" && method === "POST")
     return { handler: "llm-chat" };
   if (pathname === "/api/llm/embedding" && method === "POST")
@@ -85,6 +95,8 @@ function matchRoute(url: string, method: string) {
   if (pathname === "/api/state") return { handler: "state" };
   if (pathname === "/api/state/snapshot")
     return { handler: "state", subPath: "snapshot" };
+  if (pathname === "/api/state/snapshots")
+    return { handler: "state", subPath: "snapshots" };
 
   return null;
 }
@@ -131,6 +143,10 @@ async function handleRequest(
     switch (route.handler) {
       case "llm-chat":
         return handleLlmChat(req, res);
+      case "llm-config":
+        return handleLlmConfig(req, res);
+      case "llm-config-test":
+        return handleLlmConfigTest(req, res);
       case "llm-embedding":
         return handleLlmEmbedding(req, res);
       case "stop":
@@ -170,12 +186,8 @@ async function handleRequest(
   }
 
   // Static file serving
-  const filePath = url === "/" ? "/index.html" : url;
-  const fullPath = path.join(publicDir, filePath);
-
-  // Security: prevent directory traversal
-  const resolvedPath = path.resolve(fullPath);
-  if (!resolvedPath.startsWith(path.resolve(publicDir))) {
+  const fullPath = resolvePublicFile(publicDir, url);
+  if (!fullPath) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -183,21 +195,7 @@ async function handleRequest(
 
   try {
     const data = await fs.promises.readFile(fullPath);
-    const ext = path.extname(fullPath);
-    const contentType =
-      {
-        ".html": "text/html",
-        ".js": "application/javascript",
-        ".css": "text/css",
-        ".json": "application/json",
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".svg": "image/svg+xml",
-        ".webp": "image/webp",
-        ".ico": "image/x-icon",
-      }[ext] || "application/octet-stream";
+    const contentType = getStaticContentType(fullPath);
 
     res.writeHead(200, { "Content-Type": contentType });
     res.end(data);
@@ -217,9 +215,8 @@ async function handleRequest(
  */
 async function main() {
   if (!process.env.CUSTOM_API_KEY) {
-    console.error("❌ 错误: 未配置 LLM API Key");
-    console.log("请设置 CUSTOM_API_KEY 环境变量");
-    process.exit(1);
+    console.warn("⚠️ 未检测到 CUSTOM_API_KEY，LLM 功能在配置前将不可用");
+    console.warn("可在 .env 中设置，或启动后通过浏览器里的 LLM 配置面板填写");
   }
 
   let currentPort = Number(PORT);

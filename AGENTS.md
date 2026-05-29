@@ -1,12 +1,12 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 AI生态小镇 (AI Eco Town) is a multi-agent simulation system based on Stanford's "Generative Agents" research paper. It simulates autonomous AI agents with memory, reflection, and planning capabilities living in a virtual 2D world.
 
-**Architecture Note:** The project was refactored to a web-first architecture. The simulation now runs entirely in the browser with a lightweight Node.js server providing LLM API proxying and static file serving. `ARCHITECTURE.md` exists but is outdated (still describes the old CLI architecture) — rely on this file and the source code instead.
+**Architecture Note:** The project was refactored to a web-first architecture. The simulation now runs entirely in the browser, and the Node.js server is a lightweight `http.createServer` app for LLM API proxying and static file serving. `ARCHITECTURE.md` is outdated (still describes the old CLI architecture) — rely on this file and the source code instead.
 
 ## Common Commands
 
@@ -43,7 +43,7 @@ There are no formal unit/integration tests. vitest is installed but no test file
 
 The system has been refactored from a CLI-based simulator to a browser-based simulation:
 
-1. **Server** (`src/server/`) - Raw `http.createServer` with manual route matching (no Express):
+1. **Server** (`src/server/`) - raw `http.createServer` HTTP server with manual route matching:
    - `index.ts` - Entry point, mounts middleware and routes
    - `routes/llm.ts` - Proxies LLM requests to configured provider
    - `routes/agents.ts` - Agent CRUD and actions

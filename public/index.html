@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI 生态小镇 - 多智能体模拟系统</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="app">
@@ -15,37 +12,50 @@
     <header class="header">
       <div class="header-left">
         <h1>🏘️ AI 生态小镇</h1>
-        <a href="sprite-crop-tool.html" class="btn-tool-link" title="精灵图裁剪工具">🎨 精灵工具</a>
-        <a href="anim-test.html" class="btn-tool-link" title="精灵动画测试">🧪 动画测试</a>
+        <div class="header-tools">
+          <a href="sprite-crop-tool.html" class="btn-tool-link" title="精灵图裁剪工具">精灵工具</a>
+          <a href="anim-test.html" class="btn-tool-link" title="精灵动画测试">动画测试</a>
+        </div>
       </div>
       <div class="header-center">
         <span id="game-time" class="game-time">--:--</span>
         <span class="time-separator">|</span>
-        <span id="tick-count" class="tick-count">Tick: 0</span>
-        <span class="time-separator">|</span>
-        <div class="town-health" title="小镇生态健康度">
-          <span class="town-health-icon">🏘️</span>
-          <div class="town-health-bar">
-            <div id="town-health-fill" class="town-health-fill"></div>
+        <span id="day-count" class="day-count">第 1 天</span>
+        <div class="pollution-bar" title="世界污染值">
+          <span class="pollution-icon">☠️</span>
+          <div class="pollution-track">
+            <div id="pollution-fill" class="pollution-fill"></div>
           </div>
-          <span id="town-health-text" class="town-health-text">100/100</span>
+          <span id="pollution-text" class="pollution-text">50</span>
+        </div>
+        <div class="world-resources" title="世界资源">
+          <span class="resource-item" title="当前天数"><span class="resource-icon">📅</span><span id="res-day">第1天</span></span>
+          <span class="resource-item" title="科技理论值"><span class="resource-icon">🔬</span><span id="res-theory">0</span></span>
+          <span class="resource-item" title="科技生产值"><span class="resource-icon">⚙️</span><span id="res-production">0</span></span>
+          <span class="resource-item" title="知识储备"><span class="resource-icon">📚</span><span id="res-knowledge">100</span></span>
+          <span class="resource-item" title="物资值"><span class="resource-icon">📦</span><span id="res-material">0</span></span>
+          <span class="resource-item" title="粮食库存（物资基地食物来源）"><span class="resource-icon">🌾</span><span id="res-foodstock">50</span></span>
         </div>
       </div>
       <div class="header-right">
+        <div class="difficulty-control">
+          <button id="btn-balance-config" type="button" class="btn btn-small btn-secondary">
+            参数调优
+          </button>
+        </div>
         <button id="btn-mode-toggle" class="btn btn-small btn-mode">🎮 模拟模式</button>
         <span id="simulation-status" class="status stopped">已停止</span>
         <div class="control-buttons">
           <button id="btn-start" class="btn btn-primary btn-icon">▶️</button>
           <button id="btn-stop" class="btn btn-secondary btn-icon" disabled>⏸️</button>
-          <button id="btn-step" class="btn btn-info btn-icon" title="单步执行">⏭️</button>
           <button id="btn-reset" class="btn btn-warning btn-icon">🔄</button>
+          <button id="btn-exit-game" class="btn btn-danger btn-icon" title="不存档直接退出">✕</button>
         </div>
-        <button id="btn-stop-server" class="btn btn-small btn-danger">🛑</button>
       </div>
     </header>
 
     <!-- 主内容区 -->
-    <main class="main-content">
+    <main class="main-content" id="main-content">
       <!-- 世界地图 -->
       <section class="map-section">
         <!-- 编辑工具栏 -->
@@ -78,7 +88,7 @@
           </div>
           <div class="toolbar-group">
             <span class="toolbar-label">操作</span>
-            <button id="btn-save-map" class="btn btn-small">保存</button>
+            <button id="btn-save-map" class="btn btn-small">保存当前模板</button>
             <button id="btn-load-map" class="btn btn-small">加载</button>
             <button id="btn-merge-areas" class="btn btn-small">合并</button>
             <button id="btn-clear-map" class="btn btn-small btn-danger">清空</button>
@@ -130,14 +140,38 @@
       </section>
 
       <!-- 右侧信息面板（模拟模式） -->
+      <div id="sidebar-resizer" class="sidebar-resizer" aria-hidden="true"></div>
+      <div id="sidebar-shell" class="sidebar-shell">
+        <button
+          id="btn-toggle-sidebar"
+          class="sidebar-toggle"
+          type="button"
+          aria-label="收起或展开右侧栏"
+          title="收起或展开右侧栏"
+        >
+          ‹
+        </button>
       <aside class="sidebar" id="simulation-sidebar">
         <!-- Agent 列表 -->
-        <div class="panel agent-panel">
+        <div class="panel agent-panel" data-panel-id="agents">
           <div class="panel-header">
+            <button
+              class="panel-header-main"
+              type="button"
+              data-panel-toggle="agents"
+              aria-expanded="true"
+            >
+              <span class="panel-title">
+                <span class="panel-collapse-icon" aria-hidden="true">⌄</span>
             <h3>👥 居民</h3>
-            <span class="panel-count" id="agent-count">0</span>
+              </span>
+            </button>
+            <div class="panel-header-actions">
+              <span class="panel-count" id="agent-count">0</span>
+            </div>
           </div>
-          <div id="agent-list" class="agent-list">
+          <div class="panel-content" data-panel-content="agents">
+            <div id="agent-list" class="agent-list">
             <div class="empty-state">等待初始化...</div>
           </div>
         </div>
@@ -161,6 +195,10 @@
           <div class="quick-actions">
             <button id="btn-add-agent" class="btn btn-small">➕ 添加</button>
             <button id="btn-trigger-event" class="btn btn-small">⚡ 事件</button>
+            <button id="btn-save-town" class="btn btn-small">💾 整局存档</button>
+            <button id="btn-load-town" class="btn btn-small">📂 读取存档</button>
+            <button id="btn-llm-config" class="btn btn-small">🧠 LLM 配置</button>
+            </div>
           </div>
         </div>
       </aside>
@@ -222,6 +260,7 @@
           </div>
         </div>
       </aside>
+      </div>
     </main>
 
     <!-- Agent 详情弹窗 -->
@@ -231,7 +270,8 @@
         <div class="modal-header">
           <h2 id="modal-agent-name">Agent 详情</h2>
           <div class="modal-header-actions">
-            <button id="btn-edit-agent" class="btn btn-small">✏️ 编辑</button>
+            <button id="btn-edit-agent" class="btn btn-small btn-agent-edit">✏️ 编辑</button>
+            <button id="btn-chat-agent" class="btn btn-small btn-agent-chat">💬 私聊</button>
             <button id="btn-close-modal" class="btn-close">×</button>
           </div>
         </div>
@@ -289,28 +329,41 @@
                 <span id="modal-agent-greenpoints" class="stat-value points-value"></span>
               </div>
             </div>
+            <div class="backpack-section">
+              <div class="backpack-header">
+                <span class="stat-icon">🎒</span>
+                <span class="stat-label">背包</span>
+              </div>
+              <div id="modal-agent-backpack" class="backpack-items">
+                <span class="backpack-empty">空</span>
+              </div>
+            </div>
           </div>
           
           <div class="agent-tabs">
             <button class="tab-btn active" data-tab="memories">🧠 记忆</button>
+            <button class="tab-btn" data-tab="decisions">🧭 决策</button>
             <button class="tab-btn" data-tab="reflections">💭 反思</button>
-            <button class="tab-btn" data-tab="background">📖 背景</button>
+            <button class="tab-btn" data-tab="background">📖 重要记忆</button>
           </div>
           
           <div class="tab-content">
             <div id="tab-memories" class="tab-pane active">
               <div id="modal-memories" class="memory-list"></div>
             </div>
+            <div id="tab-decisions" class="tab-pane">
+              <div id="modal-agent-decisions" class="decision-history-list"></div>
+            </div>
             <div id="tab-reflections" class="tab-pane">
               <div id="modal-reflections" class="memory-list"></div>
             </div>
-            <div id="tab-background" class="tab-pane">
-              <div class="background-content">
-                <h4>背景故事</h4>
-                <p id="modal-agent-background"></p>
-                <h4>目标</h4>
-                <ul id="modal-agent-goals" class="goals-list"></ul>
-              </div>
+              <div id="tab-background" class="tab-pane">
+                <div class="background-content">
+                  <h4>影响这个角色的记忆</h4>
+                  <div id="modal-agent-background" class="memory-list"></div>
+                  <h4>目标</h4>
+                  <ul id="modal-agent-goals" class="goals-list"></ul>
+                </div>
             </div>
           </div>
         </div>
@@ -338,19 +391,9 @@
               <span id="edit-agent-social-val">0.5</span>
             </div>
             <div class="form-group">
-              <label>好奇心</label>
-              <input type="range" id="edit-agent-curiosity" min="0" max="100" value="50">
-              <span id="edit-agent-curiosity-val">0.5</span>
-            </div>
-            <div class="form-group">
               <label>精力</label>
               <input type="range" id="edit-agent-energy" min="0" max="100" value="50">
               <span id="edit-agent-energy-val">0.5</span>
-            </div>
-            <div class="form-group">
-              <label>谨慎度</label>
-              <input type="range" id="edit-agent-caution" min="0" max="100" value="50">
-              <span id="edit-agent-caution-val">0.5</span>
             </div>
             <div class="form-group">
               <label>偏好地点（逗号分隔）</label>
@@ -361,8 +404,13 @@
               <input type="text" id="edit-agent-activities">
             </div>
             <div class="form-group">
-              <label>行为规则（每行一条）</label>
-              <textarea id="edit-agent-rules" rows="4"></textarea>
+              <label>行动倾向（每行一条）</label>
+              <textarea id="edit-agent-rules" rows="4" placeholder="写成角色会自然产生的判断方式，例如：粮食紧张时会先想到田地。"></textarea>
+            </div>
+            <div class="form-group">
+              <label>角色认知与目的</label>
+              <textarea id="edit-agent-custom-prompt" rows="5" placeholder="建议按三段写：世界是什么、我是谁、我的目的。"></textarea>
+              <span class="form-hint">会进入决策、晨会、私聊和日计划。重点写角色如何理解世界、自己和目标，不要写成机械命令。</span>
             </div>
             <div class="form-group">
               <label>背景故事</label>
@@ -416,12 +464,8 @@
               <div class="slider-group">
                 <label>社交 <span id="new-social-val">0.50</span></label>
                 <input type="range" id="new-agent-social" min="0" max="100" value="50">
-                <label>好奇 <span id="new-curiosity-val">0.50</span></label>
-                <input type="range" id="new-agent-curiosity" min="0" max="100" value="50">
                 <label>精力 <span id="new-energy-val">0.50</span></label>
                 <input type="range" id="new-agent-energy" min="0" max="100" value="50">
-                <label>谨慎 <span id="new-caution-val">0.50</span></label>
-                <input type="range" id="new-agent-caution" min="0" max="100" value="50">
               </div>
             </div>
             <div class="form-group">
@@ -433,8 +477,12 @@
               <input type="text" id="new-agent-activities" placeholder="学习, 社交">
             </div>
             <div class="form-group">
-              <label for="new-agent-rules">行为规则（每行一条）</label>
-              <textarea id="new-agent-rules" rows="3" placeholder="上午优先学习&#10;遇到朋友主动打招呼"></textarea>
+              <label for="new-agent-rules">行动倾向（每行一条）</label>
+              <textarea id="new-agent-rules" rows="3" placeholder="粮食紧张时先想到田地&#10;污染变高时开始坐立不安"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="new-agent-custom-prompt">角色认知与目的</label>
+              <textarea id="new-agent-custom-prompt" rows="4" placeholder="世界是什么：...&#10;我是谁：...&#10;我的目的：..."></textarea>
             </div>
             <div class="form-group">
               <label for="new-agent-background">背景故事</label>
@@ -486,8 +534,117 @@
               </select>
             </div>
             <div class="form-group">
+              <label for="event-template">事件模板</label>
+              <select id="event-template">
+                <option value="">自定义编辑</option>
+                <option value="acid-rain">酸雨来袭</option>
+                <option value="supply-drop">外来补给</option>
+                <option value="research-boost">技术突破</option>
+                <option value="panic-rumor">恐慌传言</option>
+                <option value="cleanup-order">全镇清污令</option>
+              </select>
+              <span class="form-hint">先选模板，可自动填好描述和数值效果。</span>
+            </div>
+            <div class="form-group">
               <label for="event-description">事件描述</label>
               <textarea id="event-description" rows="3" required placeholder="描述发生了什么..."></textarea>
+            </div>
+            <div class="event-effects-builder">
+              <div class="event-effects-header">
+                <div>
+                  <strong>事件效果</strong>
+                  <span class="form-hint">勾选后会真正修改世界状态，而不只是写一条日志。</span>
+                </div>
+              </div>
+
+              <div class="event-quick-actions">
+                <button type="button" class="btn btn-ghost btn-small event-template-quick" data-template="acid-rain">酸雨</button>
+                <button type="button" class="btn btn-ghost btn-small event-template-quick" data-template="supply-drop">补给</button>
+                <button type="button" class="btn btn-ghost btn-small event-template-quick" data-template="research-boost">科研突破</button>
+                <button type="button" class="btn btn-ghost btn-small event-template-quick" data-template="panic-rumor">恐慌谣言</button>
+                <button type="button" class="btn btn-ghost btn-small event-template-quick" data-template="cleanup-order">清污令</button>
+              </div>
+
+              <label class="checkbox-label">
+                <input type="checkbox" id="event-effect-pollution-enabled">
+                <span>增加或减少污染</span>
+              </label>
+              <div class="form-row event-effect-row" data-effect-row="pollution">
+                <div class="form-group half">
+                  <label for="event-effect-pollution">污染变化</label>
+                  <input type="number" id="event-effect-pollution" value="0" min="-100" max="100" step="1">
+                </div>
+              </div>
+
+              <label class="checkbox-label">
+                <input type="checkbox" id="event-effect-health-enabled">
+                <span>全体居民生命变化</span>
+              </label>
+              <div class="form-row event-effect-row" data-effect-row="health">
+                <div class="form-group half">
+                  <label for="event-effect-health">生命变化</label>
+                  <input type="number" id="event-effect-health" value="0" min="-100" max="100" step="1">
+                </div>
+              </div>
+
+              <label class="checkbox-label">
+                <input type="checkbox" id="event-effect-points-enabled">
+                <span>全体居民积分变化</span>
+              </label>
+              <div class="form-row event-effect-row" data-effect-row="points">
+                <div class="form-group half">
+                  <label for="event-effect-points">积分变化</label>
+                  <input type="number" id="event-effect-points" value="0" min="-9999" max="9999" step="1">
+                </div>
+              </div>
+
+              <div class="event-resource-grid">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="event-effect-techTheory-enabled">
+                  <span>科技理论</span>
+                </label>
+                <div class="form-group">
+                  <input type="number" id="event-effect-techTheory" value="0" min="-100" max="100" step="1">
+                </div>
+
+                <label class="checkbox-label">
+                  <input type="checkbox" id="event-effect-techProduction-enabled">
+                  <span>科技生产</span>
+                </label>
+                <div class="form-group">
+                  <input type="number" id="event-effect-techProduction" value="0" min="-100" max="100" step="1">
+                </div>
+
+                <label class="checkbox-label">
+                  <input type="checkbox" id="event-effect-knowledgeReserve-enabled">
+                  <span>知识储备</span>
+                </label>
+                <div class="form-group">
+                  <input type="number" id="event-effect-knowledgeReserve" value="0" min="-200" max="200" step="1">
+                </div>
+
+                <label class="checkbox-label">
+                  <input type="checkbox" id="event-effect-materialValue-enabled">
+                  <span>物资值</span>
+                </label>
+                <div class="form-group">
+                  <input type="number" id="event-effect-materialValue" value="0" min="-200" max="200" step="1">
+                </div>
+
+                <label class="checkbox-label">
+                  <input type="checkbox" id="event-effect-foodStock-enabled">
+                  <span>粮食库存</span>
+                </label>
+                <div class="form-group">
+                  <input type="number" id="event-effect-foodStock" value="0" min="-200" max="200" step="1">
+                </div>
+              </div>
+
+              <label class="checkbox-label">
+                <input type="checkbox" id="event-effect-force-announcement-enabled">
+                <span>强制作为全镇公告</span>
+              </label>
+              <div id="event-effects-summary" class="event-effects-summary">当前效果：仅记录事件，不产生数值变化</div>
             </div>
             <div class="form-actions">
               <button type="submit" class="btn btn-primary">触发事件</button>
@@ -496,6 +653,239 @@
           </form>
         </div>
       </div>
+  </div>
+
+  <div id="dream-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2>梦境结果</h2>
+        <span id="dream-timer" class="dream-timer">30s</span>
+      </div>
+      <div class="modal-body" id="dream-results-body"></div>
+      <div class="form-actions">
+        <button id="dream-confirm" class="btn btn-primary">确认梦境</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 晨会模态框 -->
+  <div id="meeting-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2>晨会</h2>
+        <span id="meeting-timer" class="dream-timer">5:00</span>
+      </div>
+      <div class="modal-body">
+        <div id="meeting-chat" class="meeting-chat"></div>
+        <div class="meeting-input-row">
+          <input id="meeting-input" type="text" placeholder="输入消息，@名字 可单独对话..." />
+          <button id="meeting-send" class="btn btn-small">发送</button>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button id="meeting-end" class="btn btn-primary">结束晨会</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="snapshot-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>整局存档</h2>
+        <button id="btn-close-snapshot-modal" class="btn-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="snapshot-name-input">存档名</label>
+          <input id="snapshot-name-input" type="text" maxlength="40" placeholder="例如：第7天污染危机前" />
+        </div>
+        <div class="form-actions">
+          <button id="btn-confirm-save-town" class="btn btn-primary">保存当前小镇</button>
+        </div>
+        <div class="snapshot-list-section">
+          <h4>已有存档</h4>
+          <div id="snapshot-list" class="snapshot-list">
+            <div class="empty-state">暂无存档</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="llm-config-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <div>
+          <h2>LLM 配置</h2>
+          <p class="modal-subtitle">直接修改接口、模型并测试当前通路</p>
+        </div>
+        <button id="btn-close-llm-modal" class="btn-close">×</button>
+      </div>
+      <div class="modal-body llm-config-body">
+        <form id="llm-config-form" novalidate>
+          <div class="llm-config-grid">
+            <div class="form-group llm-config-span-full">
+              <label for="llm-endpoint-input">API 接口</label>
+              <input
+                id="llm-endpoint-input"
+                type="url"
+                placeholder="https://example.com/anthropic/v1/messages"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="llm-model-input">模型</label>
+              <input
+                id="llm-model-input"
+                type="text"
+                placeholder="mimo-v2.5"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="llm-api-key-header-input">鉴权头</label>
+              <select id="llm-api-key-header-input">
+                <option value="api-key">api-key</option>
+                <option value="x-api-key">x-api-key</option>
+                <option value="authorization">Authorization</option>
+              </select>
+            </div>
+            <div class="form-group llm-config-span-full">
+              <label for="llm-api-key-input">API Key</label>
+              <input
+                id="llm-api-key-input"
+                type="password"
+                placeholder="输入可用的 API Key"
+              />
+              <span class="form-hint">出于安全原因，已保存的密钥不会回显；留空表示保持不变。</span>
+            </div>
+            <details class="llm-config-advanced llm-config-span-full">
+              <summary>高级参数</summary>
+              <div class="llm-config-grid llm-config-advanced-grid">
+                <div class="form-group">
+                  <label for="llm-response-path-input">响应路径</label>
+                  <input
+                    id="llm-response-path-input"
+                    type="text"
+                    placeholder="content[1].text"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="llm-anthropic-version-input">Anthropic Version</label>
+                  <input
+                    id="llm-anthropic-version-input"
+                    type="text"
+                    placeholder="2023-06-01"
+                  />
+                </div>
+              </div>
+            </details>
+            <div class="form-group llm-config-span-full">
+              <label for="llm-test-prompt-input">测试消息</label>
+              <textarea
+                id="llm-test-prompt-input"
+                rows="3"
+                placeholder="建议写成：请只回复 OK"
+              >请只回复 OK</textarea>
+              <span class="form-hint">测试时不会自动保存，只会拿当前表单里的值试一次。</span>
+            </div>
+          </div>
+        </form>
+        <div id="llm-config-status" class="llm-config-status">
+          读取当前配置后即可测试通路。
+        </div>
+        <pre id="llm-config-result" class="llm-config-result hidden"></pre>
+        <div class="form-actions llm-config-actions">
+          <button id="btn-load-llm-config" type="button" class="btn btn-secondary">
+            读取当前
+          </button>
+          <button id="btn-test-llm-config" type="button" class="btn btn-warning">
+            测试通路
+          </button>
+          <button id="btn-save-llm-config" type="button" class="btn btn-primary">
+            保存并应用
+          </button>
+          <button id="btn-cancel-llm-config" type="button" class="btn btn-secondary">
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="agent-chat-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2 id="agent-chat-title">与居民私聊</h2>
+        <span class="dream-timer">世界已暂停</span>
+      </div>
+      <div class="modal-body">
+        <div id="agent-chat-history" class="meeting-chat"></div>
+        <div class="meeting-input-row">
+          <input id="agent-chat-input" type="text" maxlength="120" placeholder="输入你想对TA说的话..." />
+          <button id="agent-chat-send" class="btn btn-small">发送</button>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button id="agent-chat-close" class="btn btn-primary">结束私聊</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="game-over-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small game-over-modal-content">
+      <div class="modal-header">
+        <h2 id="game-over-title">世界毁灭</h2>
+        <button
+          id="btn-close-game-over-modal"
+          type="button"
+          class="btn-close"
+          aria-label="关闭结局弹窗"
+        >
+          ×
+        </button>
+      </div>
+      <div class="modal-body game-over-body">
+        <p id="game-over-message" class="game-over-message">污染值达到100，小镇毁灭...</p>
+        <div class="game-over-stats">
+          <div class="game-over-stat">
+            <span class="game-over-stat-label">终局日</span>
+            <span id="game-over-day" class="game-over-stat-value">第 1 天</span>
+          </div>
+          <div class="game-over-stat">
+            <span class="game-over-stat-label">污染值</span>
+            <span id="game-over-pollution" class="game-over-stat-value">100 / 100</span>
+          </div>
+          <div class="game-over-stat">
+            <span class="game-over-stat-label">幸存人数</span>
+            <span id="game-over-survivors" class="game-over-stat-value">0</span>
+          </div>
+        </div>
+        <p id="game-over-subtitle" class="game-over-subtitle">你要如何面对这次终局？</p>
+      </div>
+      <div class="form-actions game-over-actions">
+        <button id="game-over-next-cycle" class="btn btn-primary">下个轮回</button>
+        <button id="game-over-new-game" class="btn btn-warning">新游戏</button>
+        <button id="game-over-end" class="btn btn-secondary">结束</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="night-overlay"></div>
+  <div id="apocalypse-overlay" class="hidden">
+    <div class="apocalypse-flash"></div>
+    <div class="apocalypse-shake-plane"></div>
+    <div class="apocalypse-crack apocalypse-crack-a"></div>
+    <div class="apocalypse-crack apocalypse-crack-b"></div>
+    <div class="apocalypse-rings"></div>
+    <div class="reincarnation-halo"></div>
+    <div class="apocalypse-message">世界正在崩塌</div>
   </div>
 
   <script type="module" src="js/app/app.js"></script>

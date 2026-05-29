@@ -10,9 +10,10 @@ CREATE TABLE IF NOT EXISTS agents (
   background       TEXT NOT NULL,
   goals            TEXT NOT NULL DEFAULT '[]',
   occupation       TEXT NOT NULL DEFAULT '普通居民',
-  personality      TEXT NOT NULL DEFAULT '{"social":0.5,"curiosity":0.5,"energy":0.5,"caution":0.5}',
+  personality      TEXT NOT NULL DEFAULT '{"social":0.5,"energy":0.5}',
   preferences      TEXT NOT NULL DEFAULT '{"places":[],"activities":[]}',
   rules            TEXT NOT NULL DEFAULT '[]',
+  custom_prompt    TEXT NOT NULL DEFAULT '',
   routine          TEXT NOT NULL DEFAULT '{"wakeTime":7,"sleepTime":23}',
   position_x       INTEGER NOT NULL DEFAULT 0,
   position_y       INTEGER NOT NULL DEFAULT 0,
@@ -22,6 +23,16 @@ CREATE TABLE IF NOT EXISTS agents (
   health_max       REAL NOT NULL DEFAULT 100,
   green_points     REAL NOT NULL DEFAULT 10,
   fullness         REAL NOT NULL DEFAULT 80,
+  cycle_guidance   TEXT,
+  awake_hours_since_sleep REAL NOT NULL DEFAULT 0,
+  backpack         TEXT NOT NULL DEFAULT '[]',
+  decision_history TEXT NOT NULL DEFAULT '[]',
+  work_end_time    TEXT,
+  work_start_time  TEXT,
+  last_survival_update TEXT,
+  current_plan     TEXT,
+  last_conversation TEXT NOT NULL DEFAULT '[]',
+  player_guidance  TEXT NOT NULL DEFAULT '',
   facing_direction TEXT NOT NULL DEFAULT 'down',
   last_sleep_time  INTEGER NOT NULL DEFAULT 0,
   no_sleep_days    INTEGER NOT NULL DEFAULT 0,
@@ -94,6 +105,11 @@ CREATE TABLE IF NOT EXISTS simulation_state (
   tile_size         INTEGER NOT NULL DEFAULT 48,
   image_width       INTEGER NOT NULL DEFAULT 1536,
   image_height      INTEGER NOT NULL DEFAULT 1024,
+  pollution         REAL NOT NULL DEFAULT 50,
+  day_count         INTEGER NOT NULL DEFAULT 1,
+  difficulty        TEXT NOT NULL DEFAULT 'normal',
+  world_resources   TEXT NOT NULL DEFAULT '{}',
+  recent_events     TEXT NOT NULL DEFAULT '[]',
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -121,14 +137,16 @@ db.exec(schemaSql);
 
 // Migration: add personality columns if they don't exist
 const columns = db.prepare("PRAGMA table_info(agents)").all();
-const existingColumns = columns.map(
-  (c: Record<string, unknown>) => c.name as string,
-);
+const existingColumns = columns.map((c) => {
+  const column = c as { name: string };
+  return column.name;
+});
 const migrationColumns = [
   "occupation",
   "personality",
   "preferences",
   "rules",
+  "custom_prompt",
   "routine",
 ];
 for (const col of migrationColumns) {
@@ -136,14 +154,52 @@ for (const col of migrationColumns) {
     const defaults: Record<string, string> = {
       occupation: "'普通居民'",
       personality:
-        '\'{"social":0.5,"curiosity":0.5,"energy":0.5,"caution":0.5}\'',
+        '\'{"social":0.5,"energy":0.5}\'',
       preferences: '\'{"places":[],"activities":[]}\'',
       rules: "'[]'",
+      custom_prompt: "''",
       routine: '\'{"wakeTime":7,"sleepTime":23}\'',
     };
     db.exec(
       `ALTER TABLE agents ADD COLUMN ${col} TEXT NOT NULL DEFAULT ${defaults[col]}`,
     );
+  }
+}
+
+const agentRuntimeColumns: Array<[string, string]> = [
+  ["cycle_guidance", "ALTER TABLE agents ADD COLUMN cycle_guidance TEXT DEFAULT NULL"],
+  [
+    "awake_hours_since_sleep",
+    "ALTER TABLE agents ADD COLUMN awake_hours_since_sleep REAL NOT NULL DEFAULT 0",
+  ],
+  ["backpack", "ALTER TABLE agents ADD COLUMN backpack TEXT NOT NULL DEFAULT '[]'"],
+  [
+    "decision_history",
+    "ALTER TABLE agents ADD COLUMN decision_history TEXT NOT NULL DEFAULT '[]'",
+  ],
+  ["work_end_time", "ALTER TABLE agents ADD COLUMN work_end_time TEXT DEFAULT NULL"],
+  [
+    "work_start_time",
+    "ALTER TABLE agents ADD COLUMN work_start_time TEXT DEFAULT NULL",
+  ],
+  [
+    "last_survival_update",
+    "ALTER TABLE agents ADD COLUMN last_survival_update TEXT DEFAULT NULL",
+  ],
+  ["current_plan", "ALTER TABLE agents ADD COLUMN current_plan TEXT DEFAULT NULL"],
+  [
+    "last_conversation",
+    "ALTER TABLE agents ADD COLUMN last_conversation TEXT NOT NULL DEFAULT '[]'",
+  ],
+  [
+    "player_guidance",
+    "ALTER TABLE agents ADD COLUMN player_guidance TEXT NOT NULL DEFAULT ''",
+  ],
+];
+
+for (const [columnName, statement] of agentRuntimeColumns) {
+  if (!existingColumns.includes(columnName)) {
+    db.exec(statement);
   }
 }
 
@@ -154,10 +210,58 @@ const existing = db
 if (!existing) {
   db.prepare(
     `
-    INSERT INTO simulation_state (id, tick_count, game_time, town_health_current, town_health_max, time_scale, tile_size, image_width, image_height)
-    VALUES (1, 0, datetime('now'), 100, 100, 60, 48, 1536, 1024)
+    INSERT INTO simulation_state (
+      id,
+      tick_count,
+      game_time,
+      town_health_current,
+      town_health_max,
+      time_scale,
+      tile_size,
+      image_width,
+      image_height,
+      pollution,
+      day_count,
+      difficulty,
+      world_resources,
+      recent_events
+    )
+    VALUES (1, 0, datetime('now'), 100, 100, 5, 48, 1536, 1024, 50, 1, 'normal', '{}', '[]')
   `,
   ).run();
 }
+
+// Migration: add simulation_state columns if they don't exist
+const stateColumns = db.prepare("PRAGMA table_info(simulation_state)").all();
+const stateColNames = stateColumns.map((c) => {
+  const column = c as { name: string };
+  return column.name;
+});
+const stateColumnMigrations: Array<[string, string]> = [
+  ["pollution", "ALTER TABLE simulation_state ADD COLUMN pollution REAL NOT NULL DEFAULT 50"],
+  ["day_count", "ALTER TABLE simulation_state ADD COLUMN day_count INTEGER NOT NULL DEFAULT 1"],
+  [
+    "difficulty",
+    "ALTER TABLE simulation_state ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'normal'",
+  ],
+  [
+    "world_resources",
+    "ALTER TABLE simulation_state ADD COLUMN world_resources TEXT NOT NULL DEFAULT '{}'",
+  ],
+  [
+    "recent_events",
+    "ALTER TABLE simulation_state ADD COLUMN recent_events TEXT NOT NULL DEFAULT '[]'",
+  ],
+];
+
+for (const [columnName, statement] of stateColumnMigrations) {
+  if (!stateColNames.includes(columnName)) {
+    db.exec(statement);
+  }
+}
+
+db.exec(
+  "UPDATE simulation_state SET time_scale = 5 WHERE id = 1 AND time_scale = 60",
+);
 
 console.log("✅ Database schema initialized");

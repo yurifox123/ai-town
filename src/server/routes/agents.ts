@@ -11,7 +11,9 @@ export async function handleAgents(
     const agents = db
       .prepare(
         `
-      SELECT id, name, age, traits, occupation, position_x, position_y, status,
+      SELECT id, name, age, traits, background, goals, occupation,
+             personality, preferences, rules, custom_prompt, routine,
+             position_x, position_y, status,
              health_current, health_max, green_points, fullness,
              facing_direction, created_at
       FROM agents
@@ -46,9 +48,10 @@ export async function handleAgents(
         last_sleep_time = 0,
         no_sleep_days = 0,
         occupation = "普通居民",
-        personality = '{"social":0.5,"curiosity":0.5,"energy":0.5,"caution":0.5}',
+        personality = '{"social":0.5,"energy":0.5}',
         preferences = '{"places":[],"activities":[]}',
         rules = "[]",
+        custom_prompt = "",
         routine = '{"wakeTime":7,"sleepTime":23}',
       } = body;
 
@@ -60,10 +63,10 @@ export async function handleAgents(
 
       db.prepare(
         `
-        INSERT INTO agents (id, name, age, traits, background, goals, occupation, personality, preferences, rules, routine, position_x, position_y,
+        INSERT INTO agents (id, name, age, traits, background, goals, occupation, personality, preferences, rules, custom_prompt, routine, position_x, position_y,
                            status, current_action, health_current, health_max, green_points,
                            fullness, facing_direction, last_sleep_time, no_sleep_days)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       ).run(
         agentId,
@@ -76,6 +79,7 @@ export async function handleAgents(
         personality,
         preferences,
         rules,
+        custom_prompt,
         routine,
         position_x,
         position_y,
@@ -145,6 +149,7 @@ export async function handleAgents(
         "personality",
         "preferences",
         "rules",
+        "custom_prompt",
         "routine",
       ];
       const jsonFields = new Set([

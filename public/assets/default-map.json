@@ -193,6 +193,7 @@
           "name": "睡觉",
           "cost": 0,
           "health": 10,
+          "pollutionEffect": 0,
           "description": "在宿舍休息恢复精力"
         }
       ]
@@ -288,7 +289,8 @@
           "name": "研究",
           "cost": 0,
           "income": 20,
-          "description": "在实验室做研究赚积分"
+          "pollutionEffect": 1,
+          "description": "在实验室做研究赚积分，提升科技理论"
         }
       ]
     },
@@ -368,16 +370,32 @@
       "isBlocked": false,
       "services": [
         {
-          "name": "买食物",
-          "cost": 5,
-          "fullness": 15,
-          "description": "购买基本食物"
+          "name": "饮料",
+          "cost": 20,
+          "fullness": 8,
+          "pollutionEffect": 0,
+          "description": "便宜的饮料，少量恢复饱腹"
         },
         {
-          "name": "买大餐",
-          "cost": 15,
+          "name": "面包",
+          "cost": 50,
+          "fullness": 15,
+          "pollutionEffect": 0,
+          "description": "基本食物"
+        },
+        {
+          "name": "营养品",
+          "cost": 200,
+          "health": 15,
+          "pollutionEffect": 0,
+          "description": "恢复健康，不恢复饱腹"
+        },
+        {
+          "name": "大餐",
+          "cost": 150,
           "fullness": 40,
-          "description": "购买丰盛美食"
+          "pollutionEffect": 0,
+          "description": "丰盛美食，大量恢复饱腹"
         }
       ]
     },
@@ -436,7 +454,19 @@
       ],
       "isBlocked": false,
       "services": [
-        { "name": "许愿", "cost": 0, "description": "在许愿池许愿放松心情" }
+        {
+          "name": "许愿",
+          "cost": 0,
+          "pollutionEffect": 0,
+          "description": "在许愿池许愿放松心情"
+        },
+        {
+          "name": "清理",
+          "cost": 0,
+          "income": 0,
+          "pollutionEffect": -0.52,
+          "description": "清理小镇污染，缓慢减少污染值"
+        }
       ]
     },
     {
@@ -701,7 +731,8 @@
           "name": "种地",
           "cost": 0,
           "income": 12,
-          "description": "在田地里干农活赚积分"
+          "pollutionEffect": 1,
+          "description": "在田地里种地赚积分，增加物资"
         }
       ]
     },
@@ -781,10 +812,11 @@
       "isBlocked": false,
       "services": [
         {
-          "name": "学习",
+          "name": "收集资料",
           "cost": 0,
           "income": 10,
-          "description": "在图书馆学习赚积分"
+          "pollutionEffect": 0,
+          "description": "在图书馆收集资料，知识转化为科技"
         }
       ]
     },
@@ -831,7 +863,8 @@
           "name": "搬运",
           "cost": 0,
           "income": 15,
-          "description": "在仓库搬运货物赚积分"
+          "pollutionEffect": 1,
+          "description": "在仓库搬运货物赚积分，保存物资"
         }
       ]
     },
@@ -955,10 +988,11 @@
       "isBlocked": false,
       "services": [
         {
-          "name": "上班",
+          "name": "制造",
           "cost": 0,
           "income": 18,
-          "description": "在工厂上班赚积分"
+          "pollutionEffect": 3,
+          "description": "在工厂制造产品赚积分"
         }
       ]
     },
@@ -1148,10 +1182,6 @@
         },
         {
           "x": 29,
-          "y": 3
-        },
-        {
-          "x": 29,
           "y": 4
         },
         {
@@ -1577,10 +1607,6 @@
         {
           "x": 7,
           "y": 6
-        },
-        {
-          "x": 29,
-          "y": 5
         },
         {
           "x": 30,
