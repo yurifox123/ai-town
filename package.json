@@ -1,6 +1,6 @@
 {
   "name": "ai-town",
-  "version": "0.1.0",
+  "version": "0.95.0",
   "description": "Generative Agents - AI生态小镇复刻",
   "main": "src/server/index.ts",
   "scripts": {

@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS areas (
   name       TEXT NOT NULL,
   is_blocked INTEGER NOT NULL DEFAULT 0,
   services   TEXT,
+  metadata   TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -258,6 +259,15 @@ for (const [columnName, statement] of stateColumnMigrations) {
   if (!stateColNames.includes(columnName)) {
     db.exec(statement);
   }
+}
+
+const areaColumns = db.prepare("PRAGMA table_info(areas)").all();
+const areaColNames = areaColumns.map((c) => {
+  const column = c as { name: string };
+  return column.name;
+});
+if (!areaColNames.includes("metadata")) {
+  db.exec("ALTER TABLE areas ADD COLUMN metadata TEXT DEFAULT NULL");
 }
 
 db.exec(

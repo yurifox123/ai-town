@@ -162,7 +162,7 @@
               aria-expanded="true"
             >
               <span class="panel-title">
-                <span class="panel-collapse-icon" aria-hidden="true">⌄</span>
+                <span class="panel-collapse-icon" aria-hidden="true"></span>
             <h3>👥 居民</h3>
               </span>
             </button>
@@ -206,57 +206,105 @@
       <!-- 右侧编辑面板（编辑模式） -->
       <aside class="sidebar hidden" id="editor-sidebar">
         <!-- 地图信息 -->
-        <div class="panel">
+        <div class="panel" data-editor-panel-id="mapInfo">
           <div class="panel-header">
-            <h3>地图信息</h3>
+            <button
+              class="panel-header-main"
+              type="button"
+              data-editor-panel-toggle="mapInfo"
+              aria-expanded="true"
+            >
+              <span class="panel-title">
+                <span class="panel-collapse-icon" aria-hidden="true"></span>
+                <h3>地图信息</h3>
+              </span>
+            </button>
           </div>
-          <div class="panel-body">
-            <div class="info-row">
-              <span class="info-label">网格:</span>
-              <span id="map-dimensions">32 x 21</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">区域数:</span>
-              <span id="area-count">0</span>
+          <div class="panel-content" data-editor-panel-content="mapInfo">
+            <div class="panel-body">
+              <div class="info-row">
+                <span class="info-label">网格:</span>
+                <span id="map-dimensions">32 x 21</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">区域数:</span>
+                <span id="area-count">0</span>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- 区域列表 -->
-        <div class="panel">
+        <div class="panel" data-editor-panel-id="areaList">
           <div class="panel-header">
-            <h3>区域列表</h3>
+            <button
+              class="panel-header-main"
+              type="button"
+              data-editor-panel-toggle="areaList"
+              aria-expanded="true"
+            >
+              <span class="panel-title">
+                <span class="panel-collapse-icon" aria-hidden="true"></span>
+                <h3>区域列表</h3>
+              </span>
+            </button>
           </div>
-          <div class="panel-body" id="editor-area-content">
-            <div class="empty-state">在地图上拖拽创建区域</div>
+          <div class="panel-content" data-editor-panel-content="areaList">
+            <div class="panel-body" id="editor-area-content">
+              <div class="empty-state">在地图上拖拽创建区域</div>
+            </div>
           </div>
         </div>
 
         <!-- 区域属性 -->
-        <div class="panel">
+        <div class="panel editor-properties-panel" data-editor-panel-id="areaProperties">
           <div class="panel-header">
-            <h3>区域属性</h3>
+            <button
+              class="panel-header-main"
+              type="button"
+              data-editor-panel-toggle="areaProperties"
+              aria-expanded="true"
+            >
+              <span class="panel-title">
+                <span class="panel-collapse-icon" aria-hidden="true"></span>
+                <h3>区域属性</h3>
+              </span>
+            </button>
           </div>
-          <div class="panel-body" id="editor-area-properties">
-            <div class="empty-state">点击区域查看属性</div>
+          <div class="panel-content" data-editor-panel-content="areaProperties">
+            <div class="panel-body" id="editor-area-properties">
+              <div class="empty-state">点击区域查看属性</div>
+            </div>
           </div>
         </div>
 
         <!-- 操作说明 -->
-        <div class="panel">
+        <div class="panel" data-editor-panel-id="help">
           <div class="panel-header">
-            <h3>操作说明</h3>
+            <button
+              class="panel-header-main"
+              type="button"
+              data-editor-panel-toggle="help"
+              aria-expanded="true"
+            >
+              <span class="panel-title">
+                <span class="panel-collapse-icon" aria-hidden="true"></span>
+                <h3>操作说明</h3>
+              </span>
+            </button>
           </div>
-          <div class="panel-body">
-            <ul class="help-list">
-              <li>选择工具：点击选中区域</li>
-              <li>区域工具：拖拽创建矩形区域</li>
-              <li>删除工具：点击删除区域</li>
-              <li>红色=不可通行 蓝色=可通行</li>
-              <li>Delete键：删除选中区域</li>
-              <li>Ctrl+Z/Y：撤销/重做</li>
-              <li>滚轮：缩放地图</li>
-            </ul>
+          <div class="panel-content" data-editor-panel-content="help">
+            <div class="panel-body">
+              <ul class="help-list">
+                <li>选择工具：点击选中区域</li>
+                <li>区域工具：拖拽创建矩形区域</li>
+                <li>删除工具：点击删除区域</li>
+                <li>红色=不可通行 蓝色=可通行</li>
+                <li>Delete键：删除选中区域</li>
+                <li>Ctrl+Z/Y：撤销/重做</li>
+                <li>滚轮：缩放地图</li>
+              </ul>
+            </div>
           </div>
         </div>
       </aside>

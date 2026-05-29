@@ -1,4 +1,5 @@
 import GAME_CONFIG from "../core/game-config.js";
+import { getTagKeyByLabel } from "../core/building-semantics.js";
 
 /**
  * LLM client for browser-side simulation logic.
@@ -313,6 +314,7 @@ class LLMClient {
 
   buildDecisionFallback(text) {
     const locations = this.parseLocations(text);
+    const semanticBuildings = this.parseBuildingSemantics(text);
     const nearbyServices = this.parseNearbyServices(text);
     const nearbyAgentCount = this.extractNearbyAgentCount(text);
     const statusSection = this.extractSection(text, "## 状态:", "## 世界:");
@@ -377,6 +379,7 @@ class LLMClient {
     if (pollution >= 80) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["许愿池"],
         "先去许愿池压污染，别让小镇直接崩掉。",
         2,
@@ -401,6 +404,7 @@ class LLMClient {
       }
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         profile.moneyBuildings,
         "先去工作赚点积分，再想办法填肚子。",
         2,
@@ -416,6 +420,7 @@ class LLMClient {
     if (food < 20) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["田地", "工厂"],
         "先补粮食库存，今天不能再让粮仓见底。",
         2,
@@ -431,6 +436,7 @@ class LLMClient {
     if (knowledge < this.getKnowledgeWarningThreshold()) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["图书馆", "实验室"],
         "先去图书馆把现有知识转成理论和生产，不然科技推进会卡住。",
         2,
@@ -446,6 +452,7 @@ class LLMClient {
     if (pollution >= 60 && this.shouldTakeCleanupShift(profile, pollution)) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["许愿池"],
         "先把污染稳住，再谈别的安排。",
         2,
@@ -456,6 +463,7 @@ class LLMClient {
     if (shouldFrontloadLibrary && profile.theoryScore >= profile.productionScore - 2) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["图书馆", "实验室"],
         "前期先把图书馆和实验室跑起来，不然双科技底子一直起不来。",
         2,
@@ -471,6 +479,7 @@ class LLMClient {
     if (points < 5) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         profile.moneyBuildings,
         "先去工作攒积分，别把自己卡死。",
         2,
@@ -494,6 +503,7 @@ class LLMClient {
     if (severeTheoryGap) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["实验室", "图书馆"],
         "今天理论明显掉队，先补研究和资料。",
         2,
@@ -509,6 +519,7 @@ class LLMClient {
     if (severeProductionGap) {
       return this.makeWorkDecision(
         locations,
+        semanticBuildings,
         ["工厂", "仓库", "田地"],
         "今天生产明显掉队，先把理论尽快落到现实里。",
         2,
@@ -546,6 +557,7 @@ class LLMClient {
 
     return this.makeWorkDecision(
       locations,
+      semanticBuildings,
       strategicWork.names,
       strategicWork.description,
       2,
@@ -560,6 +572,7 @@ class LLMClient {
 
   makeWorkDecision(
     locations,
+    semanticBuildings,
     preferredNames,
     description,
     workHours = 2,
@@ -573,6 +586,7 @@ class LLMClient {
         null,
         [],
         `${options.key || "work"}:strict`,
+        semanticBuildings,
       );
       target = this.findLocation(locations, strictOrder, options.key);
     }
@@ -583,8 +597,18 @@ class LLMClient {
         options.profile,
         options.fallbackNames,
         options.key,
+        semanticBuildings,
       );
       target = this.findLocation(locations, orderedNames, options.key);
+    }
+
+    if (!target) {
+      const semanticTarget = this.findSemanticLocation(
+        semanticBuildings,
+        preferredNames,
+        options.key,
+      );
+      if (semanticTarget) target = semanticTarget;
     }
 
     if (!target) {
@@ -845,7 +869,13 @@ class LLMClient {
     );
   }
 
-  composeWorkOrder(primaryNames, profile, fallbackNames = [], key = "") {
+  composeWorkOrder(
+    primaryNames,
+    profile,
+    fallbackNames = [],
+    key = "",
+    semanticBuildings = [],
+  ) {
     const allowedBuildings = new Set([
       "实验室",
       "图书馆",
@@ -854,9 +884,13 @@ class LLMClient {
       "田地",
       "许愿池",
     ]);
+    for (const building of semanticBuildings || []) {
+      if (building?.name) allowedBuildings.add(building.name);
+    }
     const scores = new Map();
     const addNames = (names, base) => {
       [...new Set((names || []).filter(Boolean))]
+        .flatMap((name) => this.expandSemanticNames(name, semanticBuildings))
         .filter((name) => allowedBuildings.has(name))
         .forEach((name, index) => {
           scores.set(name, (scores.get(name) || 0) + base - index * 3);
@@ -878,6 +912,38 @@ class LLMClient {
     }
 
     return [...scores.keys()].sort((a, b) => scores.get(b) - scores.get(a));
+  }
+
+  expandSemanticNames(name, semanticBuildings = []) {
+    const raw = String(name || "").trim();
+    if (!raw) return [];
+    const intentByLegacyName = {
+      许愿池: "pollutionCleanup",
+      实验室: "techTheory",
+      工厂: "techProduction",
+      田地: "foodProduction",
+      图书馆: "knowledgeConversion",
+      仓库: "personalPoints",
+      物资基地: "foodSupply",
+    };
+    const names = [raw];
+    const tagKey = intentByLegacyName[raw] || raw;
+    for (const building of semanticBuildings || []) {
+      if (building.tags?.includes(tagKey)) names.push(building.name);
+    }
+    return [...new Set(names)];
+  }
+
+  findSemanticLocation(semanticBuildings = [], preferredNames = [], key = "") {
+    const expanded = preferredNames.flatMap((name) =>
+      this.expandSemanticNames(name, semanticBuildings),
+    );
+    const preferredSet = new Set(expanded);
+    const candidates = (semanticBuildings || []).filter(
+      (building) => preferredSet.has(building.name) || expanded.length === 0,
+    );
+    if (candidates.length === 0) return null;
+    return this.pickHashedItem(candidates, key || "semantic-location");
   }
 
   buildDialogueFallback(text) {
@@ -1246,6 +1312,47 @@ class LLMClient {
     }
 
     return map;
+  }
+
+  parseBuildingSemantics(text) {
+    const section = this.extractSection(text, "## 建筑认知:", "## 附近服务:");
+    const results = [];
+    const lineRegex = /-\s*([^(\n|]+)\((\d+)\s*,\s*(\d+)\)\s*\|([^\n]+)/g;
+    let match;
+
+    while ((match = lineRegex.exec(section))) {
+      const name = match[1]?.trim();
+      const x = Number(match[2]);
+      const y = Number(match[3]);
+      const rest = match[4] || "";
+      if (!name || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+      const tagText =
+        this.extractText(rest, [/标签[:：]\s*([^|]+)/], "") || "";
+      const tags = tagText
+        .split(/[、,，]/)
+        .map((label) => label.trim())
+        .map((label) => getTagKeyByLabel(label))
+        .filter(Boolean);
+      const purpose =
+        this.extractText(rest, [/用途[:：]\s*([^|]+)/], "") || "";
+      const description =
+        this.extractText(rest, [/认知[:：]\s*([^|]+)/], "") || "";
+      const serviceText =
+        this.extractText(rest, [/服务[:：]\s*([^|]+)/], "") || "";
+
+      results.push({
+        name,
+        x,
+        y,
+        tags,
+        purpose,
+        description,
+        serviceText,
+      });
+    }
+
+    return results;
   }
 
   findLocation(locationMap, names, key = "") {

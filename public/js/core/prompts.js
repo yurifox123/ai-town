@@ -66,6 +66,7 @@ const USER = {
       worldState,
       nearbyAgentsDesc,
       locations,
+      buildingSummaries,
       nearbyBuildings,
       canBuyFood,
       isNight,
@@ -120,9 +121,9 @@ ${agent.rules.map((r, i) => `${i + 1}. ${r}`).join("\n") || "无特殊倾向"}`;
     // 行动效果说明
     const actionEffects = [
       "WORK → 在建筑工作赚积分（必须指定targetX、targetY和workHours）",
-      "WORK 许愿池 → 清理污染（无收入，必须指定targetX、targetY和workHours）",
+      "WORK 污染净化建筑 → 清理污染（无收入，必须指定targetX、targetY和workHours，可从建筑认知里选择带污染净化效果的建筑）",
       "BUY → 在你选择的建筑购买具体服务（可指定targetX、targetY和serviceName）",
-      "SLEEP → 恢复健康，消除睡眠惩罚",
+      "SLEEP → 前往睡眠休息建筑恢复健康，消除睡眠惩罚",
       "TALK → 与人交谈，增进关系",
     ];
 
@@ -172,6 +173,8 @@ ${strategyHint}
 ## 位置: (${agent.position.x}, ${agent.position.y}) | 时间: ${worldState.time.toLocaleString()} | 状态: ${agent.status}
 ## 附近: ${nearbyAgentsDesc || "无"}
 ## 地点: ${locations.join(", ")}
+## 建筑认知:
+${buildingSummaries?.length ? buildingSummaries.join("\n") : "无"}
 ## 附近服务: ${nearbyBuildings || "无"}
 
 ## 行动:
@@ -184,10 +187,10 @@ ${canBuyFood ? "你附近有可购买的食物或恢复服务。" : "你需要�
 重要：BUY行动尽量指定targetX、targetY和serviceName，优先从上方“附近服务”里选
 
 ## 优先级:
-1. 污染>=${GAME_CONFIG.pollution.gameOverThreshold}: 小镇毁灭！所有人必须WORK许愿池清理！
-2. 污染>=${GAME_CONFIG.pollution.warningCritical}: 污染危急！优先WORK许愿池清理！
-3. 0<污染<=${GAME_CONFIG.pollution.finishCleanupThreshold}: 污染只剩一点，我们加加油，优先WORK许愿池清零结局，除非自己会立刻倒下
-4. 污染>=${GAME_CONFIG.pollution.warningHigh}: WORK许愿池清理！
+1. 污染>=${GAME_CONFIG.pollution.gameOverThreshold}: 小镇毁灭！所有人必须WORK污染净化建筑清理！
+2. 污染>=${GAME_CONFIG.pollution.warningCritical}: 污染危急！优先WORK带“污染净化”效果的建筑！
+3. 0<污染<=${GAME_CONFIG.pollution.finishCleanupThreshold}: 污染只剩一点，我们加加油，优先WORK污染净化建筑清零结局，除非自己会立刻倒下
+4. 污染>=${GAME_CONFIG.pollution.warningHigh}: WORK污染净化建筑清理！
 5. 连续${GAME_CONFIG.decision.noSleepWarningDays}天+没睡: SLEEP
 6. 健康<${GAME_CONFIG.decision.healthCritical}: 休息
 7. 深夜(${GAME_CONFIG.time.nightStart}-${GAME_CONFIG.time.nightEnd}): SLEEP

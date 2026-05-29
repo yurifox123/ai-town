@@ -181,7 +181,7 @@ function buildDatabaseFallbackSnapshot() {
   const areas = db
     .prepare(
       `
-      SELECT a.id, a.name, a.is_blocked, a.services,
+      SELECT a.id, a.name, a.is_blocked, a.services, a.metadata,
              JSON_GROUP_ARRAY(JSON_OBJECT('x', ac.x, 'y', ac.y))
                FILTER (WHERE ac.x IS NOT NULL) as cells
       FROM areas a
@@ -223,6 +223,7 @@ function buildDatabaseFallbackSnapshot() {
       ...area,
       isBlocked: !!area.is_blocked,
       services: area.services ? JSON.parse(area.services as string) : [],
+      metadata: safeParseJson(area.metadata, {}),
       cells: area.cells ? JSON.parse(area.cells as string) : [],
     })),
   };
@@ -350,12 +351,13 @@ export async function handleState(
           db.exec("DELETE FROM areas");
           for (const area of areas) {
             db.prepare(
-              "INSERT INTO areas (id, name, is_blocked, services) VALUES (?, ?, ?, ?)",
+              "INSERT INTO areas (id, name, is_blocked, services, metadata) VALUES (?, ?, ?, ?, ?)",
             ).run(
               area.id,
               area.name,
               area.isBlocked ? 1 : 0,
               area.services ? JSON.stringify(area.services) : null,
+              area.metadata ? JSON.stringify(area.metadata) : null,
             );
             if (area.cells) {
               const cells = area.cells as Array<{ x: number; y: number }>;

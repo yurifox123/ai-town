@@ -5,6 +5,14 @@
 import Agent from "./agent.js";
 import { normalizeTemplate } from "./personality.js";
 import DEFAULT_GAME_CONFIG from "./game-config.js";
+import {
+  applyServiceResourceEffects,
+  getAreaTags,
+  getBestServiceForIntent,
+  isWorkableArea,
+  normalizeAreaSemantics,
+  serviceHasTag,
+} from "./building-semantics.js";
 
 const GAME_CONFIG = DEFAULT_GAME_CONFIG;
 
@@ -819,6 +827,7 @@ class WorldSimulator extends EventTarget {
   setAreas(areas) {
     this.areas = Array.isArray(areas) ? areas : [];
     for (const area of this.areas) {
+      normalizeAreaSemantics(area);
       normalizeSupplyBaseArea(area);
     }
     this.rebuildPassabilityFromAreas();
@@ -941,10 +950,18 @@ class WorldSimulator extends EventTarget {
    * 获取指定坐标的区域名称
    */
   getAreaNameAt(x, y) {
+    return this.getAreaAt(x, y)?.name || null;
+  }
+
+  /**
+   * 获取指定坐标所在区域
+   */
+  getAreaAt(x, y) {
     for (let i = this.areas.length - 1; i >= 0; i--) {
       const a = this.areas[i];
       if (a.cells && a.cells.some((c) => c.x === x && c.y === y)) {
-        return a.name || null;
+        normalizeAreaSemantics(a);
+        return a;
       }
     }
     return null;
@@ -954,13 +971,7 @@ class WorldSimulator extends EventTarget {
    * 获取指定坐标区域的服务列表
    */
   getAreaServicesAt(x, y) {
-    for (let i = this.areas.length - 1; i >= 0; i--) {
-      const a = this.areas[i];
-      if (a.cells && a.cells.some((c) => c.x === x && c.y === y)) {
-        return a.services || [];
-      }
-    }
-    return [];
+    return this.getAreaAt(x, y)?.services || [];
   }
 
   /**
@@ -1696,14 +1707,15 @@ ${(res.foodStock || 0) < 20 ? "- 粮食库存紧张\n" : ""}`;
       for (const { isWorking, position } of agentSnapshot) {
         if (isWorking) {
           const buildingType = this.getAreaNameAt(position.x, position.y);
+          const area = this.getAreaAt(position.x, position.y);
           let pollEffect = 0;
           if (buildingType === "工厂" && factoryUnlocked) {
             pollEffect = GAME_CONFIG.pollution.factoryCleanupEffect;
           } else {
-            const services = this.getAreaServicesAt(position.x, position.y);
-            const workService = services.find(
-              (s) => s.income > 0 || s.pollutionEffect,
-            );
+            const workService =
+              area &&
+              (getBestServiceForIntent(area, "cleanup") ||
+                getBestServiceForIntent(area, "work"));
             if (workService?.pollutionEffect) {
               pollEffect = workService.pollutionEffect;
             }
@@ -1831,15 +1843,23 @@ ${(res.foodStock || 0) < 20 ? "- 粮食库存紧张\n" : ""}`;
       3600000;
 
     // 计算收入
-    const hourlyRate =
-      agent.currentAction?.hourlyRate || GAME_CONFIG.decision.defaultHourlyRate;
     const buildingType = this.getAreaNameAt(agent.position.x, agent.position.y);
+    const currentArea = this.getAreaAt(agent.position.x, agent.position.y);
+    const workService =
+      currentArea &&
+      (getBestServiceForIntent(currentArea, "cleanup") ||
+        getBestServiceForIntent(currentArea, "work"));
+    const serviceHourlyRate = workService?.income ?? 0;
+    const hourlyRate =
+      agent.currentAction?.hourlyRate ??
+      serviceHourlyRate ??
+      GAME_CONFIG.decision.defaultHourlyRate;
     const incomeMult = this.getIncomeMultiplier(buildingType);
     const energyEfficiency = this.getAgentEnergyEfficiency(agent);
     agent.earnPoints(workHours * hourlyRate * incomeMult * energyEfficiency);
 
     // 资源积累
-    this.accumulateResources(buildingType, workHours, agent);
+    this.accumulateResources(buildingType, workHours, agent, workService);
 
     // 记录反馈
     const changes = [];
@@ -2050,13 +2070,28 @@ ${recentMemories || "- 暂无特别记忆"}
   /**
    * 根据建筑类型和工作时长积累资源
    */
-  accumulateResources(buildingType, workHours, agent = null) {
+  accumulateResources(buildingType, workHours, agent = null, service = null) {
     const cap = GAME_CONFIG.resourceCap;
     const acc = GAME_CONFIG.resourceAccumulation;
     const effectiveWorkHours =
       workHours * this.getAgentEnergyEfficiency(agent);
 
     if (!Number.isFinite(effectiveWorkHours) || effectiveWorkHours <= 0) {
+      return;
+    }
+
+    const areaForResource = this.areas.find(
+      (area) => area.name === buildingType,
+    );
+    const hasExplicitSemanticMetadata = Boolean(
+      areaForResource?.metadata?.building &&
+        !areaForResource.metadata.building.inferred,
+    );
+    if (
+      hasExplicitSemanticMetadata &&
+      (service?.resourceEffects || serviceHasTag(service, "knowledgeConversion"))
+    ) {
+      applyServiceResourceEffects(service, this, effectiveWorkHours, agent);
       return;
     }
 
@@ -2127,9 +2162,22 @@ ${recentMemories || "- 暂无特别记忆"}
     const pollutionDecisionFeedback = isFinishCleanup
       ? "污染只剩一点，我们加加油，停止当前任务，重新判断下一步行动。"
       : "污染升高，停止当前任务，重新判断下一步行动。";
-    const currentAreaName = this.getAreaNameAt(agent.position.x, agent.position.y);
+    const currentArea = this.getAreaAt(agent.position.x, agent.position.y);
+    const currentAreaName = currentArea?.name || null;
     const isCleanupWork =
-      agent.currentAction?.type === "WORK" && currentAreaName === "许愿池";
+      agent.currentAction?.type === "WORK" &&
+      (currentAreaName === "许愿池" ||
+        getAreaTags(currentArea).includes("pollutionCleanup") ||
+        Boolean(getBestServiceForIntent(currentArea, "cleanup")));
+    const isCleanupTargetName = (name) => {
+      const area = this.areas.find((candidate) => candidate.name === name);
+      if (!area) return name === "许愿池";
+      return (
+        name === "许愿池" ||
+        getAreaTags(area).includes("pollutionCleanup") ||
+        Boolean(getBestServiceForIntent(area, "cleanup"))
+      );
+    };
 
     const interruptForPollutionDecision = (feedback) => {
       if (isMoving) {
@@ -2178,7 +2226,10 @@ ${recentMemories || "- 暂无特别记忆"}
 
     // 移动中 → 继续移动
     if (isMoving && !agent.shouldMakeNewDecision()) {
-      if (shouldInterruptForPollution && agent.workTarget?.building !== "许愿池") {
+      if (
+        shouldInterruptForPollution &&
+        !isCleanupTargetName(agent.workTarget?.building)
+      ) {
         interruptForPollutionDecision(pollutionDecisionFeedback);
       }
       return;
@@ -2186,7 +2237,10 @@ ${recentMemories || "- 暂无特别记忆"}
 
     // 有工作承诺且正在移动 → 直达目标
     if (agent.workTarget && isMoving) {
-      if (shouldInterruptForPollution && agent.workTarget.building !== "许愿池") {
+      if (
+        shouldInterruptForPollution &&
+        !isCleanupTargetName(agent.workTarget.building)
+      ) {
         interruptForPollutionDecision(pollutionDecisionFeedback);
       }
       return;
@@ -2194,7 +2248,8 @@ ${recentMemories || "- 暂无特别记忆"}
 
     // 到达工作目标 → 开始工作
     if (agent.workTarget && !isMoving) {
-      const bt = this.getAreaNameAt(agent.position.x, agent.position.y);
+      const area = this.getAreaAt(agent.position.x, agent.position.y);
+      const bt = area?.name || null;
       if (bt === agent.workTarget.building) {
         const requestedWorkHours = agent.workTarget.workHours || 2;
         const workHours =
@@ -2202,7 +2257,14 @@ ${recentMemories || "- 暂无特别记忆"}
         const wasCapped = workHours < requestedWorkHours;
         agent.workTarget = null;
         agent.status = "working";
-        const isCleanup = ["许愿池"].includes(bt);
+        const workService =
+          area &&
+          (getBestServiceForIntent(area, "cleanup") ||
+            getBestServiceForIntent(area, "work"));
+        const isCleanup =
+          bt === "许愿池" ||
+          getAreaTags(area).includes("pollutionCleanup") ||
+          (workService?.pollutionEffect || 0) < 0;
         if (isCleanup) {
           agent.cleanupOverrideUntil = null;
           agent.cleanupRetargetAt = null;
@@ -2212,7 +2274,9 @@ ${recentMemories || "- 暂无特别记忆"}
           description: wasCapped
             ? `在${bt}工作（到22点自动结束）`
             : `在${bt}工作`,
-          hourlyRate: isCleanup ? 0 : GAME_CONFIG.decision.defaultHourlyRate,
+          hourlyRate: isCleanup
+            ? 0
+            : (workService?.income ?? GAME_CONFIG.decision.defaultHourlyRate),
           workHours,
           timestamp: new Date(),
         };
@@ -2250,7 +2314,12 @@ ${recentMemories || "- 暂无特别记忆"}
    */
   isAgentAtHome(agent) {
     for (const area of this.areas) {
-      if (area.name === "宿舍" && area.cells && area.cells.length > 0) {
+      normalizeAreaSemantics(area);
+      const isSleepArea =
+        area.name === "宿舍" ||
+        getAreaTags(area).includes("sleepRest") ||
+        Boolean(getBestServiceForIntent(area, "sleep"));
+      if (isSleepArea && area.cells && area.cells.length > 0) {
         if (
           area.cells.some(
             (c) => c.x === agent.position.x && c.y === agent.position.y,
@@ -2436,11 +2505,35 @@ ${recentMemories || "- 暂无特别记忆"}
     return best;
   }
 
+  findNearestAreaByIntent(intent, origin, excludeId = null) {
+    let best = null;
+    let bestDistance = Infinity;
+
+    for (const area of this.areas) {
+      normalizeAreaSemantics(area);
+      if (area.isBlocked || !area.cells?.length) continue;
+      if (intent === "work" ? !isWorkableArea(area) : !getBestServiceForIntent(area, intent)) {
+        continue;
+      }
+      const cell = this.findAreaCell(area.name, origin, excludeId);
+      if (!cell) continue;
+      const distance =
+        Math.abs(cell.x - origin.x) + Math.abs(cell.y - origin.y);
+      if (distance < bestDistance) {
+        best = { area, cell };
+        bestDistance = distance;
+      }
+    }
+
+    return best;
+  }
+
   findNearestAreaByService(predicate, origin, excludeId = null) {
     let best = null;
     let bestDistance = Infinity;
 
     for (const area of this.areas) {
+      normalizeAreaSemantics(area);
       if (area.isBlocked || !area.cells?.length || !area.services?.length) {
         continue;
       }
@@ -2474,12 +2567,20 @@ ${recentMemories || "- 暂无特别记忆"}
     );
     const currentArea = this.getAreaNameAt(agent.position.x, agent.position.y);
     if (target?.area && currentArea === target.area.name) {
+      const workService =
+        getBestServiceForIntent(target.area, "cleanup") ||
+        getBestServiceForIntent(target.area, "work");
+      const isCleanup =
+        getAreaTags(target.area).includes("pollutionCleanup") ||
+        (workService?.pollutionEffect || 0) < 0 ||
+        target.area.name === "许愿池";
       return {
         type: agent.ActionType.WORK,
         description: workDescription,
         workHours: safeWorkHours,
-        hourlyRate:
-          target.area.name === "仓库" ? GAME_CONFIG.decision.defaultHourlyRate : 0,
+        hourlyRate: isCleanup
+          ? 0
+          : (workService?.income ?? GAME_CONFIG.decision.defaultHourlyRate),
         isFallback: true,
         timestamp: new Date(),
       };
@@ -2533,17 +2634,15 @@ ${recentMemories || "- 暂无特别记忆"}
       (pollution > GAME_CONFIG.pollution.goodEndingThreshold &&
         pollution <= GAME_CONFIG.pollution.finishCleanupThreshold)
     ) {
-      const cleanupTarget = this.findNearestAreaByNames(
-        ["许愿池"],
-        origin,
-        agent.id,
-      );
+      const cleanupTarget =
+        this.findNearestAreaByIntent("cleanup", origin, agent.id) ||
+        this.findNearestAreaByNames(["许愿池"], origin, agent.id);
       return this.buildFallbackMoveOrWork(
         agent,
         cleanupTarget,
         pollution >= GAME_CONFIG.pollution.warningHigh
-          ? `LLM不可用${errorText}，污染过高，优先去许愿池净化。`
-          : `LLM不可用${errorText}，污染只剩一点，我们加加油，先去许愿池完成最后净化。`,
+          ? `LLM不可用${errorText}，污染过高，优先去污染净化建筑处理。`
+          : `LLM不可用${errorText}，污染只剩一点，我们加加油，先去污染净化建筑完成最后净化。`,
         1,
       );
     }
@@ -2551,7 +2650,8 @@ ${recentMemories || "- 暂无特别记忆"}
     if (agent.fullness <= decision.fullnessCritical) {
       if (canBuyFood) {
         const foodTarget = this.findNearestAreaByService(
-          (service) => (service.fullness || 0) > 0 || (service.health || 0) > 0,
+          (service) =>
+            (service.fullness || 0) > 0 || (service.health || 0) > 0,
           origin,
           agent.id,
         );
@@ -2573,6 +2673,7 @@ ${recentMemories || "- 暂无特别记忆"}
       }
 
       const workTarget =
+        this.findNearestAreaByIntent("money", origin, agent.id) ||
         this.findNearestAreaByNames(["仓库"], origin, agent.id) ||
         this.findNearestAreaByService(
           (service) => (service.income || 0) > 0,
@@ -2591,25 +2692,21 @@ ${recentMemories || "- 暂无特别记忆"}
       (resources.knowledgeReserve || 0) <
       (decision.knowledgeEarlyFocusThreshold ?? 90)
     ) {
-      const libraryTarget = this.findNearestAreaByNames(
-        ["图书馆"],
-        origin,
-        agent.id,
-      );
+      const libraryTarget =
+        this.findNearestAreaByIntent("knowledge", origin, agent.id) ||
+        this.findNearestAreaByNames(["图书馆"], origin, agent.id);
       return this.buildFallbackMoveOrWork(
         agent,
         libraryTarget,
-        `LLM不可用${errorText}，前期优先去图书馆把现有知识转成科技进展。`,
+        `LLM不可用${errorText}，前期优先去知识/转化建筑把现有知识转成科技进展。`,
         1,
       );
     }
 
     if ((resources.techTheory || 0) < (decision.techRampTarget || 30)) {
-      const labTarget = this.findNearestAreaByNames(
-        ["实验室"],
-        origin,
-        agent.id,
-      );
+      const labTarget =
+        this.findNearestAreaByIntent("theory", origin, agent.id) ||
+        this.findNearestAreaByNames(["实验室"], origin, agent.id);
       return this.buildFallbackMoveOrWork(
         agent,
         labTarget,
@@ -2619,11 +2716,9 @@ ${recentMemories || "- 暂无特别记忆"}
     }
 
     if ((resources.techProduction || 0) < (decision.techRampTarget || 30)) {
-      const factoryTarget = this.findNearestAreaByNames(
-        ["工厂"],
-        origin,
-        agent.id,
-      );
+      const factoryTarget =
+        this.findNearestAreaByIntent("production", origin, agent.id) ||
+        this.findNearestAreaByNames(["工厂"], origin, agent.id);
       return this.buildFallbackMoveOrWork(
         agent,
         factoryTarget,
@@ -2634,6 +2729,7 @@ ${recentMemories || "- 暂无特别记忆"}
 
     if (agent.greenPoints <= decision.greenPointsMin) {
       const warehouseTarget =
+        this.findNearestAreaByIntent("money", origin, agent.id) ||
         this.findNearestAreaByNames(["仓库"], origin, agent.id) ||
         this.findNearestAreaByService(
           (service) => (service.income || 0) > 0,
@@ -2648,7 +2744,9 @@ ${recentMemories || "- 暂无特别记忆"}
       );
     }
 
-    const fieldTarget = this.findNearestAreaByNames(["田地"], origin, agent.id);
+    const fieldTarget =
+      this.findNearestAreaByIntent("foodProduction", origin, agent.id) ||
+      this.findNearestAreaByNames(["田地"], origin, agent.id);
     if (fieldTarget) {
       return this.buildFallbackMoveOrWork(
         agent,
@@ -3180,6 +3278,7 @@ ${setupNote}
       tileSize: this.tileSize,
       isPassable: (x, y) => this.isPassable(x, y),
       getAreaNameAt: (x, y) => this.getAreaNameAt(x, y),
+      getAreaAt: (x, y) => this.getAreaAt(x, y),
       getAreaServicesAt: (x, y) => this.getAreaServicesAt(x, y),
       getAreas: () => this.getAreas(),
     };

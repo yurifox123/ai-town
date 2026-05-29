@@ -864,6 +864,13 @@ body {
   transform: translateY(-1px);
 }
 
+#editor-sidebar .sidebar-toggle,
+.sidebar-shell:has(#editor-sidebar:not(.hidden)) .sidebar-toggle {
+  background: rgba(74, 37, 26, 0.96);
+  border-color: rgba(242, 160, 92, 0.32);
+  color: #ffe1bd;
+}
+
 .sidebar-shell.is-collapsed .sidebar-toggle {
   left: 0;
   top: 8px;
@@ -957,7 +964,12 @@ body.sidebar-resizing {
 }
 
 .panel-collapse-icon::before {
-  content: "⌄";
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
   font-size: 0.72rem;
   line-height: 1;
   color: var(--text-color);
@@ -3246,6 +3258,62 @@ body.sidebar-resizing {
   padding: 1rem;
 }
 
+#editor-sidebar {
+  gap: 0.85rem;
+}
+
+#editor-sidebar .panel {
+  flex-shrink: 0;
+}
+
+#editor-sidebar .panel.is-collapsed {
+  flex: 0 0 auto;
+}
+
+#editor-sidebar .editor-properties-panel {
+  flex: 1 1 360px;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+
+#editor-sidebar .editor-properties-panel.is-collapsed {
+  min-height: 0;
+}
+
+#editor-sidebar .editor-properties-panel .panel-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#editor-sidebar .panel.is-collapsed .panel-content {
+  display: none;
+}
+
+#editor-sidebar .editor-properties-panel .panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 4rem;
+}
+
+#editor-sidebar .editor-properties-panel .form-actions {
+  position: sticky;
+  bottom: -4rem;
+  z-index: 4;
+  margin: 0 -1rem -4rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-secondary) 88%, transparent),
+    color-mix(in srgb, var(--bg-secondary) 98%, #000)
+  );
+  backdrop-filter: blur(10px);
+}
+
 #editor-sidebar .info-row {
   display: flex;
   justify-content: space-between;
@@ -3330,9 +3398,169 @@ body.sidebar-resizing {
   color: rgba(255, 255, 255, 0.7);
 }
 
+.area-kind {
+  padding: 0.16rem 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.area-kind.is-building {
+  color: color-mix(in srgb, var(--primary-color) 82%, #fff);
+  border-color: color-mix(in srgb, var(--primary-color) 62%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 18%, rgba(0, 0, 0, 0.18));
+}
+
+.area-item.selected .area-kind {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .area-info {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.area-semantics-card {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--primary-color) 16%, transparent), transparent 45%),
+    color-mix(in srgb, var(--bg-secondary) 88%, #000 12%);
+}
+
+.area-semantics-card.is-terrain {
+  border-color: color-mix(in srgb, var(--warning-color) 38%, var(--border-color));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--warning-color) 14%, transparent), transparent 44%),
+    color-mix(in srgb, var(--bg-secondary) 88%, #000 12%);
+}
+
+.area-semantics-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.area-semantics-card h4 {
+  margin: 0;
+  color: var(--primary-color);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+}
+
+.area-semantics-hint {
+  margin-top: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.area-semantics-mode {
+  flex-shrink: 0;
+  padding: 0.24rem 0.56rem;
+  border: 1px solid color-mix(in srgb, var(--warning-color) 55%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--warning-color) 90%, #fff);
+  background: color-mix(in srgb, var(--warning-color) 14%, rgba(0, 0, 0, 0.16));
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.area-semantics-mode.is-building {
+  border-color: color-mix(in srgb, var(--primary-color) 70%, transparent);
+  color: color-mix(in srgb, var(--primary-color) 88%, #fff);
+  background: color-mix(in srgb, var(--primary-color) 18%, rgba(0, 0, 0, 0.16));
+}
+
+.area-semantics-toggle {
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+}
+
+.area-semantics-body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.area-semantics-body.is-disabled {
+  opacity: 0.62;
+}
+
+.area-semantics-values {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+}
+
+.area-semantics-value-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.8fr) minmax(120px, 1.4fr) 86px;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+}
+
+.area-semantics-value-label {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  color: var(--text-color);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.area-semantics-value-unit {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.area-semantics-value-slider {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--primary-color);
+}
+
+.area-semantics-value-slider.is-outside-slider-range {
+  accent-color: var(--warning-color);
+}
+
+.area-semantics-value-number {
+  width: 100%;
+  padding: 0.36rem 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 72%, transparent);
+  color: var(--text-color);
+  font-size: 0.78rem;
+}
+
+.area-semantics-value-number:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.area-semantics-service-preview {
+  padding: 0.6rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 /* 图片上传区域 */
@@ -3535,6 +3763,10 @@ body.sidebar-resizing {
   }
 
   .agent-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .area-semantics-value-row {
     grid-template-columns: 1fr;
   }
 }

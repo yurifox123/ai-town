@@ -12,6 +12,17 @@ import {
   buildPlanPrompt,
   buildMeetingPrompt,
 } from "./personality.js";
+import {
+  describeService,
+  getAreaBuildingSummary,
+  getBestServiceForIntent,
+  getAreaTags,
+  getAreaBuilding,
+  isWorkableArea,
+  normalizeAreaSemantics,
+  serviceHasTag,
+  serviceMatchesIntent,
+} from "./building-semantics.js";
 
 class Agent {
   constructor(config, llmClient) {
@@ -196,6 +207,7 @@ class Agent {
     const locations = [];
     const workLocations = [];
     const foodLocations = [];
+    const buildingSummaries = [];
     const areas = worldState.getAreas ? worldState.getAreas() : [];
 
     // 辅助：从区域中随机选一个可通行的格子
@@ -224,6 +236,7 @@ class Agent {
       return null;
     };
     for (const area of areas) {
+      normalizeAreaSemantics(area);
       if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
       // 计算区域中心位置
       let sumX = 0,
@@ -235,11 +248,15 @@ class Agent {
       const cx = Math.round(sumX / area.cells.length);
       const cy = Math.round(sumY / area.cells.length);
       locations.push(`${area.name}(${cx},${cy})`);
+      const summary = getAreaBuildingSummary(area);
+      if (summary) buildingSummaries.push(summary);
 
       // 分类地点
       if (area.services) {
-        const hasWork = area.services.some((s) => s.income > 0);
-        const hasFood = area.services.some((s) => s.fullness > 0);
+        const hasWork = isWorkableArea(area);
+        const hasFood = area.services.some((s) =>
+          serviceMatchesIntent(s, "food"),
+        );
         if (hasWork) workLocations.push(`${area.name}(${cx},${cy})`);
         if (hasFood) foodLocations.push(`${area.name}(${cx},${cy})`);
       }
@@ -307,16 +324,16 @@ class Agent {
     // 污染警告（高优先级）
     const pollution = worldState.pollution ?? GAME_CONFIG.initialPollution;
     if (pollution >= GAME_CONFIG.pollution.gameOverThreshold) {
-      survivalContext += `【致命】污染已达${pollution}/100，小镇即将毁灭！所有人必须立刻去许愿池清理污染！这是最紧急的任务！\n`;
+      survivalContext += `【致命】污染已达${pollution}/100，小镇即将毁灭！所有人必须立刻去带“污染净化”效果的建筑清理污染！这是最紧急的任务！\n`;
     } else if (pollution >= GAME_CONFIG.pollution.warningCritical) {
-      survivalContext += `【危急】污染高达${pollution}/100，小镇濒临毁灭！请立即前往许愿池清理污染！每小时污染-0.52，不清理就完了！\n`;
+      survivalContext += `【危急】污染高达${pollution}/100，小镇濒临毁灭！请立即前往污染净化建筑清理污染，优先参考建筑认知里的具体净化数值。\n`;
     } else if (pollution >= GAME_CONFIG.pollution.warningHigh) {
-      survivalContext += `【警告】污染${pollution}/100，小镇环境恶化！请考虑去许愿池清理污染（WORK许愿池，每小时-0.52）。\n`;
+      survivalContext += `【警告】污染${pollution}/100，小镇环境恶化！请考虑去污染净化建筑清理污染。\n`;
     } else if (
       pollution > GAME_CONFIG.pollution.goodEndingThreshold &&
       pollution <= GAME_CONFIG.pollution.finishCleanupThreshold
     ) {
-      survivalContext += `【收尾】污染只剩${pollution}/100，我们加加油。去许愿池继续净化，就可能直接结束危机，别在最后一点时分散去做次要事务。\n`;
+      survivalContext += `【收尾】污染只剩${pollution}/100，我们加加油。去污染净化建筑继续净化，就可能直接结束危机，别在最后一点时分散去做次要事务。\n`;
     }
 
     // 附近建筑提示
@@ -344,11 +361,11 @@ class Agent {
         distance <= GAME_CONFIG.movement.observationRange &&
         area.services.length > 0
       ) {
-        const foodServices = area.services.filter((s) => s.fullness > 0);
+        const foodServices = area.services.filter((s) =>
+          serviceMatchesIntent(s, "food"),
+        );
         const services = area.services
-          .map(
-            (s) => `${s.name}(+${s.fullness || s.health || ""},${s.cost}积分)`,
-          )
+          .map((s) => `${describeService(s)}(${s.cost || 0}积分)`)
           .join(", ");
         nearbyBuildings += `- ${area.name}: ${services}\n`;
         if (foodServices.length > 0) {
@@ -380,6 +397,7 @@ class Agent {
       worldState,
       nearbyAgentsDesc: this.getNearbyDescription(),
       locations,
+      buildingSummaries,
       nearbyBuildings,
       canBuyFood,
       isNight,
@@ -447,15 +465,6 @@ class Agent {
       } else if (actionType === "WORK") {
         const workBuildingNames = ["实验室", "工厂", "仓库", "田地", "图书馆"];
         const cleanupBuildings = ["许愿池"];
-        const currentArea = worldState.getAreaNameAt
-          ? worldState.getAreaNameAt(this.position.x, this.position.y)
-          : null;
-        // 判断是否为清理类建筑（无收入）
-        const isCleanup = currentArea && cleanupBuildings.includes(currentArea);
-        const effectiveHourlyRate = isCleanup
-          ? 0
-          : decision.hourlyRate || GAME_CONFIG.decision.defaultHourlyRate;
-
         // 从位置找建筑的辅助函数
         const findAreaAt = (x, y) => {
           for (const area of areas) {
@@ -466,16 +475,42 @@ class Agent {
           return null;
         };
 
-        const allWorkBuildings = [...workBuildingNames, ...cleanupBuildings];
+        const currentArea = worldState.getAreaNameAt
+          ? worldState.getAreaNameAt(this.position.x, this.position.y)
+          : null;
+        const currentAreaObject = findAreaAt(this.position.x, this.position.y);
+        const currentWorkService = currentAreaObject
+          ? getBestServiceForIntent(currentAreaObject, "work")
+          : null;
+        // 判断是否为清理类建筑（无收入）
+        const isCleanup =
+          currentAreaObject &&
+          (getAreaTags(currentAreaObject).includes("pollutionCleanup") ||
+            cleanupBuildings.includes(currentArea) ||
+            (currentWorkService?.pollutionEffect || 0) < 0);
+        const effectiveHourlyRate = isCleanup
+          ? 0
+          : decision.hourlyRate ??
+            currentWorkService?.income ??
+            GAME_CONFIG.decision.defaultHourlyRate;
+
         const cleanupMentionedInDescription =
           typeof decision.description === "string" &&
-          cleanupBuildings.some((name) => decision.description.includes(name));
-        const findNearestWorkArea = (candidateNames) => {
+          (cleanupBuildings.some((name) => decision.description.includes(name)) ||
+            /净化|污染/.test(decision.description));
+        const findNearestWorkArea = (candidateNames, intent = "work") => {
           let bestArea = null;
           let bestDist = Infinity;
           for (const area of areas) {
+            normalizeAreaSemantics(area);
             if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
-            if (!candidateNames.includes(area.name)) continue;
+            const matchesName =
+              !candidateNames?.length || candidateNames.includes(area.name);
+            const matchesIntent =
+              intent === "work"
+                ? isWorkableArea(area)
+                : Boolean(getBestServiceForIntent(area, intent));
+            if (!matchesName && !matchesIntent) continue;
             let sumX = 0,
               sumY = 0;
             for (const c of area.cells) {
@@ -498,8 +533,10 @@ class Agent {
           let bestArea = null;
           let bestDist = Infinity;
           for (const area of areas) {
+            normalizeAreaSemantics(area);
             if (area.isBlocked || !area.cells || area.cells.length === 0) continue;
             if (area.name !== candidateName) continue;
+            if (!isWorkableArea(area)) continue;
             let sumX = 0;
             let sumY = 0;
             for (const c of area.cells) {
@@ -527,13 +564,13 @@ class Agent {
 
         if (decision.targetBuilding) {
           const namedArea = findNamedWorkArea(decision.targetBuilding);
-          if (namedArea && allWorkBuildings.includes(namedArea.name)) {
+          if (namedArea && isWorkableArea(namedArea)) {
             targetArea = namedArea;
           }
         }
 
         if (!targetArea && cleanupMentionedInDescription) {
-          targetArea = findNearestWorkArea(cleanupBuildings);
+          targetArea = findNearestWorkArea(cleanupBuildings, "cleanup");
         }
 
         // 1) LLM指定了目标位置且是工作建筑 → 尊重LLM选择
@@ -543,7 +580,7 @@ class Agent {
           decision.targetY !== undefined
         ) {
           const llmArea = findAreaAt(decision.targetX, decision.targetY);
-          if (llmArea && allWorkBuildings.includes(llmArea.name)) {
+          if (llmArea && isWorkableArea(llmArea)) {
             targetArea = llmArea;
           }
         }
@@ -552,13 +589,10 @@ class Agent {
         if (!targetArea) {
           let bestDist = Infinity;
           for (const area of areas) {
+            normalizeAreaSemantics(area);
             if (area.isBlocked || !area.cells || area.cells.length === 0)
               continue;
-            if (
-              !workBuildingNames.includes(area.name) &&
-              !cleanupBuildings.includes(area.name)
-            )
-              continue;
+            if (!isWorkableArea(area)) continue;
             if (!this.preferences.places.includes(area.name)) continue;
             let sumX = 0,
               sumY = 0;
@@ -579,16 +613,14 @@ class Agent {
 
         // 3) 没有偏好匹配 → 最近的工作建筑
         if (!targetArea) {
-          targetArea = findNearestWorkArea(workBuildingNames);
+          targetArea = findNearestWorkArea(workBuildingNames, "work");
         }
 
         const canWorkInCurrentArea =
-          currentArea &&
-          (workBuildingNames.includes(currentArea) ||
-            cleanupBuildings.includes(currentArea));
+          currentAreaObject && isWorkableArea(currentAreaObject);
         const canWorkHereForThisDecision =
           canWorkInCurrentArea &&
-          (!cleanupMentionedInDescription || cleanupBuildings.includes(currentArea));
+          (!cleanupMentionedInDescription || isCleanup);
 
         // 只有当前站着的地方就是“本次真正目标”时，才允许原地工作
         if (
@@ -610,10 +642,18 @@ class Agent {
         }
 
         if (targetArea) {
-          const isCleanupTarget = cleanupBuildings.includes(targetArea.name);
+          const targetWorkService =
+            getBestServiceForIntent(targetArea, "cleanup") ||
+            getBestServiceForIntent(targetArea, "work");
+          const isCleanupTarget =
+            getAreaTags(targetArea).includes("pollutionCleanup") ||
+            cleanupBuildings.includes(targetArea.name) ||
+            (targetWorkService?.pollutionEffect || 0) < 0;
           const targetHourlyRate = isCleanupTarget
             ? 0
-            : decision.hourlyRate || GAME_CONFIG.decision.defaultHourlyRate;
+            : decision.hourlyRate ??
+              targetWorkService?.income ??
+              GAME_CONFIG.decision.defaultHourlyRate;
 
           // 已在目标建筑内，直接工作
           const alreadyInside = targetArea.cells.some(
@@ -817,9 +857,14 @@ class Agent {
           let myHome = null;
           const areas = world.getAreas ? world.getAreas() : [];
           for (const area of areas) {
-            if (area.name === "宿舍" && area.cells && area.cells.length > 0) {
+            normalizeAreaSemantics(area);
+            const isSleepArea =
+              area.name === "宿舍" ||
+              getAreaTags(area).includes("sleepRest") ||
+              Boolean(getBestServiceForIntent(area, "sleep"));
+            if (isSleepArea && area.cells && area.cells.length > 0) {
               const assignedCell =
-                world.findAreaCell?.("宿舍", this.position, this.id) ??
+                world.findAreaCell?.(area.name, this.position, this.id) ??
                 area.cells[0];
               myHome = {
                 position: { ...assignedCell },
@@ -838,8 +883,8 @@ class Agent {
             if (alreadyAtHome) {
               // 已经在家附近，使用睡觉服务
               console.log(`[${this.name}] 已经到家，开始睡觉`);
-              const sleepService = myHome.services.find(
-                (s) => s.name === "睡觉",
+              const sleepService = myHome.services.find((s) =>
+                serviceMatchesIntent(s, "sleep"),
               );
               if (sleepService) {
                 await this.interactWithObject(myHome, sleepService);
@@ -878,12 +923,8 @@ class Agent {
 
       case this.ActionType.WORK:
         if (world) {
-          const currentArea = world.getAreaNameAt?.(this.position.x, this.position.y);
-          const canWorkHere =
-            currentArea &&
-            ["实验室", "工厂", "仓库", "田地", "图书馆", "许愿池"].includes(
-              currentArea,
-            );
+          const currentArea = world.getAreaAt?.(this.position.x, this.position.y);
+          const canWorkHere = currentArea && isWorkableArea(currentArea);
           if (!canWorkHere) {
             this.status = "idle";
             this.lastFeedback = "说要工作，但当前位置并不在可工作的建筑里。";
@@ -932,7 +973,8 @@ class Agent {
               const foodStock = world?.worldResources?.foodStock ?? 0;
               const foodServices = area.services.filter(
                 (s) =>
-                  (s.fullness > 0 || s.health > 0) &&
+                  (serviceMatchesIntent(s, "food") ||
+                    serviceMatchesIntent(s, "healing")) &&
                   this.greenPoints >= Math.round(s.cost * costMult) &&
                   (s.fullness <= 0 || foodStock > 0),
               );
@@ -1723,6 +1765,12 @@ class Agent {
 
     const buildingType = object.name;
     const world = this.world;
+    const objectArea =
+      object.area ||
+      world?.getAreaAt?.(this.position.x, this.position.y) ||
+      (world?.getAreas?.() || []).find((area) => area.name === buildingType);
+    if (objectArea) normalizeAreaSemantics(objectArea);
+    const buildingSemantics = objectArea ? getAreaBuilding(objectArea) : null;
 
     // 计算建筑等级倍率
     const costMult = world?.getCostMultiplier?.(buildingType) ?? 1;
@@ -1748,8 +1796,14 @@ class Agent {
     }
 
     // 应用效果（乘以效果倍率）
-    // 物资基地物品存入背包，其他建筑直接生效
-    if (buildingType === "物资基地" && (service.fullness || service.health)) {
+    // 支援/混合型补给建筑把物品放入背包；纯消费建筑直接生效。
+    const shouldStoreSupplyInBackpack =
+      (service.fullness || service.health) &&
+      (buildingType === "物资基地" ||
+        buildingSemantics?.purpose === "support" ||
+        buildingSemantics?.purpose === "mixed" ||
+        serviceHasTag(service, "foodSupply"));
+    if (shouldStoreSupplyInBackpack) {
       // 食物类物品需要消耗粮食库存
       if (service.fullness && world?.worldResources) {
         const stock = world.worldResources.foodStock || 0;
@@ -1763,7 +1817,7 @@ class Agent {
           );
           // 退还积分
           if (actualCost > 0) this.greenPoints += actualCost;
-          this.lastFeedback = `物资基地库存不足，没能领取${service.name}。`;
+          this.lastFeedback = `${buildingType}库存不足，没能领取${service.name}。`;
           await this.memory.addMemory(
             this.lastFeedback,
             this.MemoryType.OBSERVATION,
@@ -1787,7 +1841,7 @@ class Agent {
       console.log(
         `[${this.name}] 将${service.name}放入背包，粮食库存:${world?.worldResources?.foodStock ?? "N/A"}，当前背包: ${this.backpack.map((i) => `${i.name}×${i.quantity}`).join(", ") || "空"}`,
       );
-      this.lastFeedback = `已从物资基地领取${service.name}放入背包，之后饥饿或受伤时会自动使用。`;
+      this.lastFeedback = `已从${buildingType}领取${service.name}放入背包，之后饥饿或受伤时会自动使用。`;
     } else {
       if (service.fullness) {
         this.eat(Math.round(service.fullness * effectMult));

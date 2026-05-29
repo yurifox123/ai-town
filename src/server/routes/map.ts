@@ -23,7 +23,7 @@ export async function handleMap(
     const areas = db
       .prepare(
         `
-      SELECT a.id, a.name, a.is_blocked as isBlocked, a.services, a.created_at,
+      SELECT a.id, a.name, a.is_blocked as isBlocked, a.services, a.metadata, a.created_at,
              JSON_GROUP_ARRAY(
                JSON_OBJECT('x', ac.x, 'y', ac.y)
              ) FILTER (WHERE ac.x IS NOT NULL) as cells
@@ -39,6 +39,7 @@ export async function handleMap(
         ...area,
         isBlocked: area.isBlocked ? 1 : 0,
         services: safeParseJson(area.services, []),
+        metadata: safeParseJson(area.metadata, {}),
         cells: safeParseJson(area.cells, []),
       }),
     );
@@ -51,7 +52,14 @@ export async function handleMap(
   if (pathname === "/api/map/areas" && req.method === "POST") {
     try {
       const body = (await readJsonBody(req)) as Record<string, unknown>;
-      const { id, name, isBlocked = 0, services = null, cells = [] } = body;
+      const {
+        id,
+        name,
+        isBlocked = 0,
+        services = null,
+        metadata = null,
+        cells = [],
+      } = body;
 
       if (!id || !name) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -63,22 +71,24 @@ export async function handleMap(
 
       if (existing) {
         db.prepare(
-          "UPDATE areas SET name = ?, is_blocked = ?, services = ? WHERE id = ?",
+          "UPDATE areas SET name = ?, is_blocked = ?, services = ?, metadata = ? WHERE id = ?",
         ).run(
           name,
           isBlocked ? 1 : 0,
           services ? JSON.stringify(services) : null,
+          metadata ? JSON.stringify(metadata) : null,
           id,
         );
         db.prepare("DELETE FROM area_cells WHERE area_id = ?").run(id);
       } else {
         db.prepare(
-          "INSERT INTO areas (id, name, is_blocked, services) VALUES (?, ?, ?, ?)",
+          "INSERT INTO areas (id, name, is_blocked, services, metadata) VALUES (?, ?, ?, ?, ?)",
         ).run(
           id,
           name,
           isBlocked ? 1 : 0,
           services ? JSON.stringify(services) : null,
+          metadata ? JSON.stringify(metadata) : null,
         );
       }
 
@@ -117,6 +127,7 @@ export async function handleMap(
           name: string;
           isBlocked: number;
           services: unknown[];
+          metadata?: Record<string, unknown>;
           cells: Array<{ x: number; y: number }>;
         }>;
       };
@@ -132,7 +143,7 @@ export async function handleMap(
       db.exec("DELETE FROM areas");
 
       const insertArea = db.prepare(
-        "INSERT INTO areas (id, name, is_blocked, services) VALUES (?, ?, ?, ?)",
+        "INSERT INTO areas (id, name, is_blocked, services, metadata) VALUES (?, ?, ?, ?, ?)",
       );
       const insertCell = db.prepare(
         "INSERT INTO area_cells (area_id, x, y) VALUES (?, ?, ?)",
@@ -158,6 +169,7 @@ export async function handleMap(
             area.name,
             area.isBlocked ? 1 : 0,
             area.services ? JSON.stringify(area.services) : null,
+            area.metadata ? JSON.stringify(area.metadata) : null,
           );
           if (safeCells.length > 0) {
             for (const cell of safeCells) {

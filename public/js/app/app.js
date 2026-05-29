@@ -23,6 +23,14 @@ import {
   setActiveGameConfig,
 } from "../core/game-config.js";
 import {
+  BUILDING_EFFECT_TAGS,
+  BUILDING_PURPOSES,
+  describeService,
+  getAreaBuilding,
+  getAreaTags,
+  normalizeAreaSemantics,
+} from "../core/building-semantics.js";
+import {
   appendSafeMessage,
   appendTextElement,
   clearElement,
@@ -35,6 +43,7 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "ai-town-sidebar-collapsed";
 const SIDEBAR_WIDTH_STORAGE_KEY = "ai-town-sidebar-width";
 const SIDEBAR_EXPANDED_WIDTH_STORAGE_KEY = "ai-town-sidebar-expanded-width";
 const SIDEBAR_PANEL_STATE_STORAGE_KEY = "ai-town-sidebar-panels";
+const EDITOR_PANEL_STATE_STORAGE_KEY = "ai-town-editor-panels";
 const SIDEBAR_COLLAPSED_WIDTH = 28;
 const SIDEBAR_DEFAULT_WIDTH = 360;
 const SIDEBAR_MAX_WIDTH = 560;
@@ -43,6 +52,12 @@ const DEFAULT_SIDEBAR_PANELS = Object.freeze({
   agents: true,
   events: true,
   actions: true,
+});
+const DEFAULT_EDITOR_PANELS = Object.freeze({
+  mapInfo: false,
+  areaList: true,
+  areaProperties: true,
+  help: false,
 });
 const POLLUTION_THEME_STOPS = Object.freeze([
   {
@@ -1449,6 +1464,7 @@ const state = {
   agentChatTargetId: null,
   agentChatHistory: [],
   sidebarPanels: loadSidebarPanelState(),
+  editorPanels: loadEditorPanelState(),
   sidebar: {
     collapsed: localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1",
     dragging: false,
@@ -1630,6 +1646,27 @@ function persistSidebarPanelState() {
   localStorage.setItem(
     SIDEBAR_PANEL_STATE_STORAGE_KEY,
     JSON.stringify(state.sidebarPanels || DEFAULT_SIDEBAR_PANELS),
+  );
+}
+
+function loadEditorPanelState() {
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(EDITOR_PANEL_STATE_STORAGE_KEY) || "{}",
+    );
+    return {
+      ...DEFAULT_EDITOR_PANELS,
+      ...raw,
+    };
+  } catch {
+    return { ...DEFAULT_EDITOR_PANELS };
+  }
+}
+
+function persistEditorPanelState() {
+  localStorage.setItem(
+    EDITOR_PANEL_STATE_STORAGE_KEY,
+    JSON.stringify(state.editorPanels || DEFAULT_EDITOR_PANELS),
   );
 }
 
@@ -2046,6 +2083,52 @@ function setupSimulationSidebarPanels() {
   });
 
   updateSidebarSectionMeta();
+}
+
+function setEditorPanelExpanded(panelId, expanded) {
+  const normalizedExpanded = Boolean(expanded);
+  state.editorPanels = state.editorPanels || { ...DEFAULT_EDITOR_PANELS };
+  state.editorPanels[panelId] = normalizedExpanded;
+  const panel = document.querySelector(
+    `#editor-sidebar [data-editor-panel-id="${panelId}"]`,
+  );
+  if (panel) {
+    panel.classList.toggle("is-collapsed", !normalizedExpanded);
+    panel
+      .querySelectorAll(`[data-editor-panel-toggle="${panelId}"]`)
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-expanded",
+          normalizedExpanded ? "true" : "false",
+        ),
+      );
+  }
+  persistEditorPanelState();
+}
+
+function toggleEditorPanel(panelId) {
+  const currentState =
+    state.editorPanels?.[panelId] ?? DEFAULT_EDITOR_PANELS[panelId] ?? true;
+  setEditorPanelExpanded(panelId, !currentState);
+}
+
+function setupEditorSidebarPanels() {
+  document
+    .querySelectorAll("#editor-sidebar [data-editor-panel-toggle]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const panelId = button.dataset.editorPanelToggle;
+        if (panelId) {
+          toggleEditorPanel(panelId);
+        }
+      });
+    });
+
+  for (const [panelId, expanded] of Object.entries(
+    state.editorPanels || DEFAULT_EDITOR_PANELS,
+  )) {
+    setEditorPanelExpanded(panelId, expanded);
+  }
 }
 
 function clampSidebarWidth(width) {
@@ -3819,6 +3902,9 @@ function renderAreaListInEditor() {
   }
 
   state.areas.forEach((a, i) => {
+    normalizeAreaSemantics(a);
+    const building = getAreaBuilding(a);
+    const tagCount = getAreaTags(a).length;
     const bbox = computeAreaBBox(a);
     const cellCount = Array.isArray(a?.cells) ? a.cells.length : 0;
     const itemEl = document.createElement("div");
@@ -3837,6 +3923,12 @@ function renderAreaListInEditor() {
     colorEl.style.background = a.isBlocked ? "#e74c3c" : "#2ecc71";
     itemEl.appendChild(colorEl);
     appendTextElement(itemEl, "span", a.name || "未命名区域", "area-name");
+    appendTextElement(
+      itemEl,
+      "span",
+      building.enabled ? `建筑 ${tagCount}标签` : "地形",
+      building.enabled ? "area-kind is-building" : "area-kind",
+    );
     appendTextElement(
       itemEl,
       "span",
@@ -3899,6 +3991,159 @@ function renderAreaProperties(area) {
 
   const bbox = computeAreaBBox(area);
   const cellCount = Array.isArray(area?.cells) ? area.cells.length : 0;
+  normalizeAreaSemantics(area);
+  const building = getAreaBuilding(area);
+
+  const semanticsGroup = document.createElement("div");
+  semanticsGroup.className = [
+    "area-semantics-card",
+    building.enabled ? "is-enabled" : "is-terrain",
+  ].join(" ");
+
+  const semanticsHeader = document.createElement("div");
+  semanticsHeader.className = "area-semantics-header";
+  const headerText = document.createElement("div");
+  appendTextElement(headerText, "h4", "建筑语义编辑器");
+  appendTextElement(
+    headerText,
+    "p",
+    building.enabled
+      ? "这个区域会进入人物认知、决策和数值效果。"
+      : "当前是地形/装饰区域，人物只会识别位置，不会当成建筑行动目标。",
+    "area-semantics-hint",
+  );
+  semanticsHeader.appendChild(headerText);
+  const modePill = document.createElement("span");
+  modePill.className = building.enabled
+    ? "area-semantics-mode is-building"
+    : "area-semantics-mode";
+  modePill.textContent = building.enabled ? "建筑" : "地形";
+  semanticsHeader.appendChild(modePill);
+  semanticsGroup.appendChild(semanticsHeader);
+
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "checkbox-label area-semantics-toggle";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.id = "area-building-enabled";
+  enabledInput.checked = Boolean(building.enabled);
+  enabledLabel.appendChild(enabledInput);
+  appendTextElement(enabledLabel, "span", "把这个区域设为建筑，让人物理解并使用它");
+  semanticsGroup.appendChild(enabledLabel);
+
+  const semanticsBody = document.createElement("div");
+  semanticsBody.className = building.enabled
+    ? "area-semantics-body"
+    : "area-semantics-body is-disabled";
+
+  const purposeGroup = document.createElement("div");
+  purposeGroup.className = "form-group";
+  appendTextElement(purposeGroup, "label", "建筑用途");
+  const purposeSelect = document.createElement("select");
+  purposeSelect.id = "area-building-purpose";
+  purposeSelect.disabled = !building.enabled;
+  for (const purpose of BUILDING_PURPOSES) {
+    const option = document.createElement("option");
+    option.value = purpose.value;
+    option.textContent = purpose.label;
+    option.selected = building.purpose === purpose.value;
+    purposeSelect.appendChild(option);
+  }
+  purposeGroup.appendChild(purposeSelect);
+  semanticsBody.appendChild(purposeGroup);
+
+  const descriptionGroup = document.createElement("div");
+  descriptionGroup.className = "form-group";
+  appendTextElement(descriptionGroup, "label", "人物认知描述");
+  const descriptionInput = document.createElement("textarea");
+  descriptionInput.id = "area-building-description";
+  descriptionInput.rows = 3;
+  descriptionInput.disabled = !building.enabled;
+  descriptionInput.placeholder =
+    "例如：这里能治疗受伤居民，健康低时应优先前来。";
+  descriptionInput.value = building.agentDescription || "";
+  descriptionGroup.appendChild(descriptionInput);
+  semanticsBody.appendChild(descriptionGroup);
+
+  const tagsGroup = document.createElement("div");
+  tagsGroup.className = "form-group";
+  appendTextElement(tagsGroup, "label", "建筑效果数值");
+  appendTextElement(
+    tagsGroup,
+    "div",
+    "滑条范围为 -2 到 2；需要突破时可直接在数字框输入更大或更小的值。数值为 0 表示关闭该效果。",
+    "area-semantics-hint",
+  );
+  const tagGrid = document.createElement("div");
+  tagGrid.className = "area-semantics-values";
+  for (const tag of BUILDING_EFFECT_TAGS) {
+    const control = tag.control || {};
+    const currentValue = Number(building.effectValues?.[tag.key] ?? 0);
+    const valueRow = document.createElement("div");
+    valueRow.className = "area-semantics-value-row";
+    valueRow.title = tag.description || "";
+
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "area-semantics-value-label";
+    appendTextElement(labelWrap, "span", tag.label);
+    appendTextElement(
+      labelWrap,
+      "small",
+      control.unit || "",
+      "area-semantics-value-unit",
+    );
+    valueRow.appendChild(labelWrap);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = String(control.min ?? -2);
+    slider.max = String(control.max ?? 2);
+    slider.step = String(control.step ?? 0.01);
+    const sliderMin = Number(slider.min);
+    const sliderMax = Number(slider.max);
+    slider.value = String(
+      Math.max(
+        sliderMin,
+        Math.min(sliderMax, Number.isFinite(currentValue) ? currentValue : 0),
+      ),
+    );
+    slider.disabled = !building.enabled;
+    slider.dataset.effectKey = tag.key;
+    slider.className = "area-semantics-value-slider";
+    slider.classList.toggle(
+      "is-outside-slider-range",
+      Number.isFinite(currentValue) &&
+        (currentValue < sliderMin || currentValue > sliderMax),
+    );
+    valueRow.appendChild(slider);
+
+    const numberInput = document.createElement("input");
+    numberInput.type = "number";
+    numberInput.step = String(control.step ?? 0.01);
+    numberInput.value = String(Number.isFinite(currentValue) ? currentValue : 0);
+    numberInput.disabled = !building.enabled;
+    numberInput.dataset.effectKey = tag.key;
+    numberInput.className = "area-semantics-value-number";
+    valueRow.appendChild(numberInput);
+
+    tagGrid.appendChild(valueRow);
+  }
+  tagsGroup.appendChild(tagGrid);
+  semanticsBody.appendChild(tagsGroup);
+
+  const servicePreview = document.createElement("div");
+  servicePreview.className = "area-semantics-service-preview";
+  servicePreview.id = "area-semantics-service-preview";
+  const serviceText = (area.services || []).map(describeService).filter(Boolean);
+  servicePreview.textContent = building.enabled
+    ? serviceText.length
+      ? `服务: ${serviceText.join("；")}`
+      : "服务: 无。勾选标签后会自动生成默认服务。"
+    : "地形模式不会生成服务；开启建筑后可选择效果标签。";
+  semanticsBody.appendChild(servicePreview);
+  semanticsGroup.appendChild(semanticsBody);
+  panel.appendChild(semanticsGroup);
+
   const nameGroup = document.createElement("div");
   nameGroup.className = "form-group";
   appendTextElement(nameGroup, "label", "名称");
@@ -3956,6 +4201,88 @@ function renderAreaProperties(area) {
       markEditorMapDirty();
       renderAreaListInEditor();
     });
+
+  const updateBuildingSemantics = (options = {}) => {
+    const { rerender = true } = options;
+    const metadata = area.metadata && typeof area.metadata === "object"
+      ? area.metadata
+      : {};
+    const effectValues = {};
+    panel
+      .querySelectorAll(".area-semantics-value-number")
+      .forEach((input) => {
+        const key = input.dataset.effectKey;
+        if (!key) return;
+        const value = Number(input.value);
+        effectValues[key] = Number.isFinite(value) ? value : 0;
+      });
+    const tags = Object.entries(effectValues)
+      .filter(([, value]) => Number(value) !== 0)
+      .map(([key]) => key);
+    area.metadata = {
+      ...metadata,
+      building: {
+        enabled: Boolean(
+          document.getElementById("area-building-enabled")?.checked,
+        ),
+        purpose:
+          document.getElementById("area-building-purpose")?.value || "neutral",
+        agentDescription:
+          document.getElementById("area-building-description")?.value || "",
+        tags,
+        effectValues,
+      },
+    };
+    normalizeAreaSemantics(area);
+    markEditorMapDirty();
+    if (rerender) {
+      renderAreaListInEditor();
+      renderAreaProperties(area);
+    }
+  };
+
+  document
+    .getElementById("area-building-enabled")
+    ?.addEventListener("change", updateBuildingSemantics);
+  document
+    .getElementById("area-building-purpose")
+    ?.addEventListener("change", updateBuildingSemantics);
+  document
+    .getElementById("area-building-description")
+    ?.addEventListener("input", () => {
+      updateBuildingSemantics({ rerender: false });
+    });
+  panel.querySelectorAll(".area-semantics-value-slider").forEach((input) => {
+    input.addEventListener("input", () => {
+      const numberInput = panel.querySelector(
+        `.area-semantics-value-number[data-effect-key="${input.dataset.effectKey}"]`,
+      );
+      if (numberInput) numberInput.value = input.value;
+      updateBuildingSemantics({ rerender: false });
+    });
+    input.addEventListener("change", updateBuildingSemantics);
+  });
+  panel.querySelectorAll(".area-semantics-value-number").forEach((input) => {
+    input.addEventListener("input", () => {
+      const slider = panel.querySelector(
+        `.area-semantics-value-slider[data-effect-key="${input.dataset.effectKey}"]`,
+      );
+      if (slider) {
+        const value = Number(input.value);
+        const min = Number(slider.min);
+        const max = Number(slider.max);
+        slider.value = String(
+          Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : 0,
+        );
+        slider.classList.toggle(
+          "is-outside-slider-range",
+          Number.isFinite(value) && (value < min || value > max),
+        );
+      }
+      updateBuildingSemantics({ rerender: false });
+    });
+    input.addEventListener("change", updateBuildingSemantics);
+  });
 
   document.getElementById("btn-delete-area")?.addEventListener("click", () => {
     const idx = state.areas.indexOf(area);
@@ -6019,6 +6346,10 @@ async function addDefaultAgents() {
 }
 
 function parseJSONField(value, fallback) {
+  if (value && typeof value === "object") {
+    if (Array.isArray(value)) return [...value];
+    return { ...value };
+  }
   if (!value) return Array.isArray(fallback) ? [...fallback] : { ...fallback };
   try {
     return JSON.parse(value);
@@ -6034,6 +6365,10 @@ function normalizeAreaRecord(area) {
   const rawCells = Array.isArray(area?.cells)
     ? area.cells
     : parseJSONField(area?.cells, []);
+  const rawMetadata =
+    area?.metadata && typeof area.metadata === "object"
+      ? area.metadata
+      : parseJSONField(area?.metadata, {});
 
   let cells = Array.isArray(rawCells)
     ? rawCells
@@ -6061,13 +6396,14 @@ function normalizeAreaRecord(area) {
     );
   }
 
-  return {
+  return normalizeAreaSemantics({
     ...area,
     name: area?.name || "",
     isBlocked: area?.isBlocked ?? !!area?.is_blocked,
     services: Array.isArray(rawServices) ? rawServices : [],
+    metadata: rawMetadata && typeof rawMetadata === "object" ? rawMetadata : {},
     cells,
-  };
+  });
 }
 
 function buildTownSnapshotPayload(snapshotName = "latest-town-snapshot") {
@@ -6304,16 +6640,7 @@ async function loadTownSnapshot(snapshotName = "latest-town-snapshot") {
       },
       agents: [],
       events: snapshot.events ?? [],
-      areas: (snapshot.areas || []).map((area) => ({
-        ...area,
-        isBlocked: area.isBlocked ?? !!area.is_blocked,
-        services: Array.isArray(area.services)
-          ? area.services
-          : parseJSONField(area.services, []),
-        cells: Array.isArray(area.cells)
-          ? area.cells
-          : parseJSONField(area.cells, []),
-      })),
+      areas: (snapshot.areas || []).map((area) => normalizeAreaRecord(area)),
     };
 
     for (const agent of snapshot.agents || []) {
@@ -7861,6 +8188,7 @@ async function getMeetingAgentReply(agent, chatHistory, townContext, options = {
 function initEditor() {
   // 设置编辑模式事件监听
   setupEditorListeners();
+  setupEditorSidebarPanels();
   window.addEventListener("pagehide", flushEditorMapPersistOnPageHide);
 
   // 保存初始历史状态
